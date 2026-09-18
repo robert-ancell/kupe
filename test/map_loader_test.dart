@@ -369,6 +369,64 @@ void main() {
       expect(loader.tiles, isNotEmpty);
     });
   });
+  group('being turned away', () {
+    test('picks itself up again rather than stopping for good', () async {
+      final server = _Unwell();
+      final loader = MapLoader(
+        api: OsmApi(fetch: server.fetch),
+        onChanged: () {},
+      );
+      loader.look(_at(17), _size);
+      await _drain();
+      expect(loader.stopped, isNotNull, reason: 'paused while it is unwell');
+
+      // The server comes right, and the wait passes.
+      server.unwell = false;
+      await Future<void>.delayed(retryDelay + const Duration(seconds: 1));
+      await _drain();
+
+      expect(loader.stopped, isNull);
+      expect(loader.tiles, isNotEmpty);
+      loader.dispose();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('asks again for the box it was turned away on', () async {
+      final server = _Unwell();
+      final loader = MapLoader(
+        api: OsmApi(fetch: server.fetch),
+        onChanged: () {},
+      );
+      loader.look(_at(17), _size);
+      await _drain();
+      final turnedAway = server.refused;
+      expect(turnedAway, isNotEmpty);
+
+      server.unwell = false;
+      await Future<void>.delayed(retryDelay + const Duration(seconds: 1));
+      await _drain();
+
+      // A box asked for and never answered has not been read, so it must not
+      // be left as a hole in the map.
+      for (final box in turnedAway) {
+        expect(server.asked.map((b) => b.toString()), contains(box.toString()));
+      }
+      loader.dispose();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('survives the network being away', () async {
+      final server = _Offline();
+      final loader = MapLoader(
+        api: OsmApi(fetch: server.fetch),
+        onChanged: () {},
+      );
+      loader.look(_at(17), _size);
+      await _drain();
+      // A dropped socket is not an HTTP answer and must not escape as an
+      // unhandled error.
+      expect(loader.stopped, isNotNull);
+      loader.dispose();
+    });
+  });
 }
 
 /// An API that has had enough and says so at once.
@@ -379,4 +437,40 @@ class _TooManyRequests {
     asked++;
     throw OsmHttpException(uri, HttpStatus.tooManyRequests);
   }
+}
+
+/// An API that is too busy until it is not.
+class _Unwell {
+  bool unwell = true;
+
+  /// The boxes it refused while it was unwell.
+  final List<OsmBounds> refused = [];
+
+  /// The boxes it answered.
+  final List<OsmBounds> asked = [];
+
+  final _well = _Api();
+
+  Future<Uint8List?> fetch(Uri uri) async {
+    final parts = uri.queryParameters['bbox']!.split(',').map(double.parse);
+    final [west, south, east, north] = parts.toList();
+    final bounds = OsmBounds(
+      minLatitude: south,
+      minLongitude: west,
+      maxLatitude: north,
+      maxLongitude: east,
+    );
+    if (unwell) {
+      refused.add(bounds);
+      throw OsmHttpException(uri, HttpStatus.serviceUnavailable);
+    }
+    asked.add(bounds);
+    return _well.fetch(uri);
+  }
+}
+
+/// A network that is not there.
+class _Offline {
+  Future<Uint8List?> fetch(Uri uri) async =>
+      throw const SocketException('nothing is listening');
 }

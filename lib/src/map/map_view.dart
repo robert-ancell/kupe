@@ -75,6 +75,7 @@ class _MapViewState extends State<MapView> {
   void dispose() {
     _settle?.cancel();
     _check?.cancel();
+    _loader.dispose();
     for (final mesh in _uploaded.values) {
       mesh.dispose();
     }
@@ -99,6 +100,7 @@ class _MapViewState extends State<MapView> {
   void _lookSoon() {
     _settle?.cancel();
     _check?.cancel();
+    _loader.dispose();
     _settle = Timer(settleDelay, () {
       if (mounted) _loader.look(_camera, _size);
     });
@@ -263,7 +265,7 @@ class _ReadoutState extends State<_Readout> {
                 ),
               if (loader.stopped != null)
                 Text(
-                  'stopped: ${loader.stopped}',
+                  'paused: ${loader.stopped}, trying again shortly',
                   style: const TextStyle(color: Color(0xffff8080)),
                 )
               else if (tooFar)

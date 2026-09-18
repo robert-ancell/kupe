@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:osm/osm.dart';
@@ -39,7 +40,14 @@ const coarsestRequestZoom = 13;
 /// This is the real limit. A view needs about the same number of tiles at
 /// every zoom, because the tiles grow as the map zooms out, so this bounds
 /// what one screenful costs wherever it is pointed.
-const maximumTilesPerView = 48;
+///
+/// Measured against the live API over Auckland and Wellington: the first
+/// half dozen boxes come back in two to five seconds and everything after
+/// them takes twenty five to fifty. The server allows a burst and then holds
+/// the rest back, so asking for a whole large screen at once buys a minute of
+/// waiting. Staying near the burst is what makes the middle of the view
+/// appear quickly; the edges follow as the map is panned.
+const maximumTilesPerView = 16;
 
 /// The most requests one view may cost in total, splitting included.
 ///
@@ -55,7 +63,17 @@ const maximumRequestsPerView = 96;
 /// The fetch keeps its own count as well; this one is what keeps the queue
 /// short enough to throw away when the view moves. iD sets no limit at all
 /// and lets the browser decide; this stays well under that.
+///
+/// Two was measured as slower than four rather than gentler: the server holds
+/// a client to about the same throughput either way, so asking one at a time
+/// only lengthens the wait.
 const maximumInFlight = 4;
+
+/// How long the map waits before trying again after the API turns it away.
+///
+/// Being turned away is not permanent and must not be treated as such. The
+/// same wait iD uses.
+const retryDelay = Duration(seconds: 8);
 
 /// How far a tile will be split when the API says it holds too much.
 ///
@@ -96,7 +114,10 @@ class MapLoader {
   Camera? _camera;
   Size _size = Size.zero;
 
-  /// Why loading stopped, or null while it has not.
+  /// Why loading is paused, or null while it is not.
+  ///
+  /// Set when the API turns the map away. Cleared again after [retryDelay],
+  /// because a server that is busy now will not be busy for ever.
   String? stopped;
 
   /// Whether the view holds more than can be read at this zoom.
@@ -107,9 +128,16 @@ class MapLoader {
   bool crowded = false;
 
   var _spent = 0;
+  Timer? _resume;
 
   /// Creates a loader.
   MapLoader({required this.api, required this.onChanged, this.cache});
+
+  /// Stops the loader waiting to try again.
+  void dispose() {
+    _resume?.cancel();
+    _resume = null;
+  }
 
   /// The tiles that have been built.
   List<TileMesh> get tiles => _built.values.toList();
@@ -334,12 +362,34 @@ class MapLoader {
         }
       }
     } on OsmHttpException catch (e) {
-      // The server has had enough, or is not there. Asking again is the wrong
-      // thing to do, so nothing more is asked for at all.
-      stopped = 'the API answered ${e.status}';
-      _queue = [];
-      onChanged();
+      _pause('the API answered ${e.status}', tile);
+    } on IOException catch (e) {
+      // A dropped connection, a name that would not resolve, a refused
+      // socket. The fetch has already tried several times over about a
+      // minute, so the network is genuinely away rather than blinking.
+      _pause('${e.runtimeType}', tile);
     }
+  }
+
+  /// Stops asking for a while, and picks up where it left off afterwards.
+  ///
+  /// Being turned away says the server is busy now, not that it will be busy
+  /// for ever, so the queue is dropped rather than the loader. [tile] is put
+  /// back so that it is asked for again rather than left as a hole: a box
+  /// that was asked for and never answered has not been read.
+  void _pause(String why, TileId tile) {
+    _asked.remove(tile);
+    stopped = why;
+    _queue = [];
+    onChanged();
+
+    _resume?.cancel();
+    _resume = Timer(retryDelay, () {
+      stopped = null;
+      onChanged();
+      final camera = _camera;
+      if (camera != null) look(camera, _size);
+    });
   }
 
   void _draw(TileId tile, List<OsmElement> elements) {
