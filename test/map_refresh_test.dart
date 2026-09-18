@@ -37,7 +37,11 @@ class _Api {
   /// Ids the boxes no longer hold, standing in for elements deleted since.
   Set<int> deleted = const {};
 
-  Future<Uint8List?> fetch(Uri uri) async {
+  Future<Uint8List?> fetch(
+    Uri uri, {
+    Future<void>? abandon,
+    void Function(Uint8List body)? onLate,
+  }) async {
     if (uri.path.endsWith('changesets')) {
       checks++;
       if (tooManyEdits) return _changesetPage();

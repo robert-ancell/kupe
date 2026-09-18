@@ -22,7 +22,11 @@ class _Api {
 
   _Api({this.refuseWiderThan});
 
-  Future<Uint8List?> fetch(Uri uri) async {
+  Future<Uint8List?> fetch(
+    Uri uri, {
+    Future<void>? abandon,
+    void Function(Uint8List body)? onLate,
+  }) async {
     final parts = uri.queryParameters['bbox']!.split(',').map(double.parse);
     final [west, south, east, north] = parts.toList();
     asked.add(
@@ -433,7 +437,11 @@ void main() {
 class _TooManyRequests {
   int asked = 0;
 
-  Future<Uint8List?> fetch(Uri uri) async {
+  Future<Uint8List?> fetch(
+    Uri uri, {
+    Future<void>? abandon,
+    void Function(Uint8List body)? onLate,
+  }) async {
     asked++;
     throw OsmHttpException(uri, HttpStatus.tooManyRequests);
   }
@@ -451,7 +459,11 @@ class _Unwell {
 
   final _well = _Api();
 
-  Future<Uint8List?> fetch(Uri uri) async {
+  Future<Uint8List?> fetch(
+    Uri uri, {
+    Future<void>? abandon,
+    void Function(Uint8List body)? onLate,
+  }) async {
     final parts = uri.queryParameters['bbox']!.split(',').map(double.parse);
     final [west, south, east, north] = parts.toList();
     final bounds = OsmBounds(
@@ -471,6 +483,9 @@ class _Unwell {
 
 /// A network that is not there.
 class _Offline {
-  Future<Uint8List?> fetch(Uri uri) async =>
-      throw const SocketException('nothing is listening');
+  Future<Uint8List?> fetch(
+    Uri uri, {
+    Future<void>? abandon,
+    void Function(Uint8List body)? onLate,
+  }) async => throw const SocketException('nothing is listening');
 }

@@ -129,14 +129,28 @@ class MapLoader {
 
   var _spent = 0;
   Timer? _resume;
+  final _reading = <TileId, Completer<void>>{};
 
   /// Creates a loader.
   MapLoader({required this.api, required this.onChanged, this.cache});
 
-  /// Stops the loader waiting to try again.
+  /// Stops the loader waiting to try again, and gives up on anything still
+  /// being read.
   void dispose() {
     _resume?.cancel();
     _resume = null;
+    for (final tile in _reading.keys.toList()) {
+      _abandon(tile);
+    }
+  }
+
+  /// How many boxes are being read right now.
+  int get reading => _reading.length;
+
+  /// Gives up on a box that is still being read.
+  void _abandon(TileId tile) {
+    final giveUp = _reading.remove(tile);
+    if (giveUp != null && !giveUp.isCompleted) giveUp.complete();
   }
 
   /// The tiles that have been built.
@@ -180,6 +194,13 @@ class MapLoader {
     final capped = wanted.take(maximumTilesPerView).toList();
     _spent = 0;
     crowded = false;
+
+    // Boxes being read for somewhere the map has moved off are given up on.
+    // The server answers a client at about a fixed rate whatever it is asked,
+    // so a box nobody is looking at any more is holding up one that is.
+    for (final tile in _reading.keys.toList()) {
+      if (!_isVisible(tile, camera)) _abandon(tile);
+    }
 
     // Anything already on disk is drawn straight away and costs the API
     // nothing. Only what is left goes into the queue.
@@ -333,10 +354,23 @@ class MapLoader {
   }
 
   Future<void> _load(TileId tile, {int split = 0}) async {
+    final giveUp = Completer<void>();
+    _reading[tile] = giveUp;
     try {
-      final elements = await api.map(tile.bounds);
+      final elements = await api.map(
+        tile.bounds,
+        abandon: giveUp.future,
+        // Given up on, but the server had already begun answering. The work
+        // is done and the box will be wanted again the moment the map comes
+        // back to it, so it is kept even though nobody waited for it.
+        onLate: (late) => unawaited(_keep(tile, late)),
+      );
       _draw(tile, elements);
       await cache?.write(tile, elements);
+    } on OsmAbandonedException {
+      // The map moved off it. Not a failure, and not a box that has been
+      // read, so it is asked for again if it comes back into view.
+      _asked.remove(tile);
     } on OsmTooMuchDataException {
       // The box holds more than the API will hand over at once. Its quarters
       // each hold a quarter as much, so ask for those instead, for as long as
@@ -368,7 +402,20 @@ class MapLoader {
       // socket. The fetch has already tried several times over about a
       // minute, so the network is genuinely away rather than blinking.
       _pause('${e.runtimeType}', tile);
+    } finally {
+      _reading.remove(tile);
     }
+  }
+
+  /// Keeps a box that arrived after it stopped being waited for.
+  ///
+  /// Written to disk but not drawn: the map has moved off it, and it is taken
+  /// off the list of boxes already asked for so that coming back to it reads
+  /// it from disk rather than from the API.
+  Future<void> _keep(TileId tile, List<OsmElement> elements) async {
+    await cache?.write(tile, elements);
+    _asked.remove(tile);
+    onChanged();
   }
 
   /// Stops asking for a while, and picks up where it left off afterwards.
