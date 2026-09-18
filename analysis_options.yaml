@@ -5,9 +5,6 @@ linter:
     - public_member_api_docs
 
 analyzer:
-  errors:
-    # The benchmark is a command line tool and reports on standard output.
-    avoid_print: ignore
   exclude:
     - build/**
     - android/**

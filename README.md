@@ -11,37 +11,11 @@ data, assembling shapes, and applying changes — lives in
 [osm.dart](https://github.com/robert-ancell/osm.dart) so that other tools can
 use it too.
 
-## Running
-
-```
-flutter run -d linux --release
-```
-
-A place to open at can be given as latitude, longitude and zoom:
-
-```
-flutter run -d linux --release -a -36.8485 -a 174.7633 -a 17
-```
-
-Drag to pan, scroll or pinch to zoom. The map is read from OpenStreetMap as it
-is looked at, in boxes sized so that a screenful costs about the same number of
-requests however far out it is. Somewhere crowded enough that a screen cannot
-be read within that budget says so and asks to be zoomed in. The readout in the
-corner shows how long frames are taking and how much has been asked of the API.
-
-What has been read is kept on disk, up to 40 MB, so the editor opens where it
-was left with the map already drawn. What it holds is then checked against what
-has been edited since, and only the parts that changed are read again.
-
 ## Building
 
 ```
 flutter test
-dart benchmark/tessellate.dart path/to/extract.osm.pbf
 ```
-
-The benchmark reports what an area costs to turn into triangles, which is the
-budget the map is drawn within.
 
 ## Licence
 
