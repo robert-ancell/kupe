@@ -14,17 +14,19 @@ use it too.
 ## Running
 
 ```
-flutter run -d linux --release -a path/to/extract.osm.pbf
+flutter run -d linux --release
 ```
 
-An area can be given as well, as south, west, north and east in degrees:
+A place to open at can be given as latitude, longitude and zoom:
 
 ```
-flutter run -d linux --release -a extract.osm.pbf -a -36.862 -a 174.752 -a -36.842 -a 174.778
+flutter run -d linux --release -a -36.8485 -a 174.7633 -a 17
 ```
 
-Drag to pan, scroll or pinch to zoom. The readout in the corner shows how long
-frames are taking.
+Drag to pan, scroll or pinch to zoom. The map is read from OpenStreetMap as it
+is looked at, so nothing loads until it is zoomed in far enough for one screen
+to be a reasonable thing to ask for. The readout in the corner shows how long
+frames are taking and how much has been asked of the API.
 
 ## Building
 

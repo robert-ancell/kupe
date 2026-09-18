@@ -1,3 +1,5 @@
+import 'package:osm/osm.dart';
+
 import 'mercator.dart';
 
 /// A square of the world at one zoom level, in the standard tile numbering.
@@ -41,6 +43,25 @@ class TileId {
 
   /// The world y of the tile's northern edge.
   double get worldY => y * size;
+
+  /// The ground the tile covers, which is what the API is asked for.
+  OsmBounds get bounds => OsmBounds(
+    minLatitude: Mercator.latitude(worldY + size),
+    minLongitude: Mercator.longitude(worldX),
+    maxLatitude: Mercator.latitude(worldY),
+    maxLongitude: Mercator.longitude(worldX + size),
+  );
+
+  /// The four tiles one zoom level in that together cover this one.
+  ///
+  /// What to ask for when the API will not answer for this tile because it
+  /// holds too much.
+  List<TileId> get children => [
+    TileId(zoom + 1, x * 2, y * 2),
+    TileId(zoom + 1, x * 2 + 1, y * 2),
+    TileId(zoom + 1, x * 2, y * 2 + 1),
+    TileId(zoom + 1, x * 2 + 1, y * 2 + 1),
+  ];
 
   @override
   bool operator ==(Object other) =>

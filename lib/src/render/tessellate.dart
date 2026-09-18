@@ -59,12 +59,18 @@ class TessellationReport {
 /// Set [fills] or [lines] to false to build only one of the two. Zooming
 /// changes what lines have to look like but leaves filled shapes alone, so a
 /// rebuild on zoom only has to redo the lines.
+///
+/// Pass [into] to put everything in one named tile rather than in whichever
+/// tile it falls in. Data read a box at a time arrives already divided, and
+/// keeping each box's share whole is what stops two boxes from both claiming
+/// a tile on the line between them.
 TessellationReport tessellate(
   OsmSubset data, {
   required int zoom,
   required double pixelsPerTile,
   bool fills = true,
   bool lines = true,
+  TileId? into,
 }) {
   final builders = <TileId, _TileBuilder>{};
   var drawn = 0;
@@ -86,6 +92,7 @@ TessellationReport tessellate(
         pixelsPerTile,
         fills,
         lines,
+        into,
       ),
       OsmRelation() when fills => _relation(
         element,
@@ -93,6 +100,7 @@ TessellationReport tessellate(
         builders,
         zoom,
         pixelsPerTile,
+        into,
       ),
       _ => _Outcome.skipped,
     };
@@ -126,6 +134,7 @@ _Outcome _way(
   double pixelsPerTile,
   bool fills,
   bool lines,
+  TileId? into,
 ) {
   final asArea = way.isClosed && enclosesArea(way.tags);
   if (asArea ? !fills : !lines) return _Outcome.skipped;
@@ -138,10 +147,10 @@ _Outcome _way(
   if (asArea) {
     final area = data.areaOf(way);
     if (area == null) return _Outcome.incomplete;
-    return _fill(area, layers, builders, zoom, pixelsPerTile);
+    return _fill(area, layers, builders, zoom, pixelsPerTile, into);
   }
 
-  final tile = _tileOf(nodes.first, zoom);
+  final tile = into ?? _tileOf(nodes.first, zoom);
   final builder = builders.putIfAbsent(
     tile,
     () => _TileBuilder(tile, pixelsPerTile),
@@ -159,6 +168,7 @@ _Outcome _relation(
   Map<TileId, _TileBuilder> builders,
   int zoom,
   double pixelsPerTile,
+  TileId? into,
 ) {
   if (relation.tags['type'] != 'multipolygon') return _Outcome.skipped;
   final layers = fillLayersFor(relation.tags);
@@ -166,7 +176,7 @@ _Outcome _relation(
 
   final area = data.areaOf(relation);
   if (area == null) return _Outcome.incomplete;
-  return _fill(area, layers, builders, zoom, pixelsPerTile);
+  return _fill(area, layers, builders, zoom, pixelsPerTile, into);
 }
 
 _Outcome _fill(
@@ -175,12 +185,13 @@ _Outcome _fill(
   Map<TileId, _TileBuilder> builders,
   int zoom,
   double pixelsPerTile,
+  TileId? into,
 ) {
   if (area.polygons.isEmpty) return _Outcome.incomplete;
 
   for (final polygon in area.polygons) {
     if (polygon.outer.isEmpty) continue;
-    final tile = _tileOf(polygon.outer.first, zoom);
+    final tile = into ?? _tileOf(polygon.outer.first, zoom);
     final builder = builders.putIfAbsent(
       tile,
       () => _TileBuilder(tile, pixelsPerTile),

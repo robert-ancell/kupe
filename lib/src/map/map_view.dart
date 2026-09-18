@@ -3,26 +3,35 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:osm/osm.dart';
 
+import '../data/map_loader.dart';
 import '../render/map_painter.dart';
 import '../render/tile_mesh.dart';
 import 'camera.dart';
 import 'frame_stats.dart';
 
-/// The map, drawn from tiles that have already been built.
+/// How long the map waits after being moved before asking for what it can
+/// now see.
 ///
-/// Panning and zooming only change the camera. No geometry is rebuilt and
-/// nothing is uploaded again, so the cost of a frame is the same whether the
-/// map is still or moving.
+/// Long enough that a drag across a city is one request for where it stopped
+/// rather than a request for everywhere it passed over.
+const settleDelay = Duration(milliseconds: 250);
+
+/// The map, read from OpenStreetMap as it is looked at.
+///
+/// Panning and zooming only move the camera. Geometry already built is not
+/// built again and not uploaded again, so a frame costs the same whether the
+/// map is still or moving, and new tiles appear as their answers arrive.
 class MapView extends StatefulWidget {
-  /// The tiles to draw.
-  final List<TileMesh> tiles;
+  /// Where to read the map from.
+  final OsmApi api;
 
   /// Where to start looking from.
   final Camera initialCamera;
 
   /// Creates the map.
-  const MapView({super.key, required this.tiles, required this.initialCamera});
+  const MapView({super.key, required this.api, required this.initialCamera});
 
   @override
   State<MapView> createState() => _MapViewState();
@@ -30,13 +39,22 @@ class MapView extends StatefulWidget {
 
 class _MapViewState extends State<MapView> {
   late Camera _camera = widget.initialCamera;
+  late final MapLoader _loader = MapLoader(
+    api: widget.api,
+    onChanged: () {
+      if (mounted) setState(() {});
+    },
+  );
   final _uploaded = <TileMesh, GpuTileMesh>{};
   final _stats = FrameStats();
+  Timer? _settle;
+  Size _size = Size.zero;
   var _drawCalls = 0;
   double? _zoomFrom;
 
   @override
   void dispose() {
+    _settle?.cancel();
     for (final mesh in _uploaded.values) {
       mesh.dispose();
     }
@@ -45,19 +63,28 @@ class _MapViewState extends State<MapView> {
   }
 
   List<GpuTileMesh> get _meshes => [
-    for (final tile in widget.tiles)
+    for (final tile in _loader.tiles)
       _uploaded.putIfAbsent(tile, () => GpuTileMesh.of(tile)),
   ];
 
-  void _scroll(PointerSignalEvent event, Size size) {
-    if (event is! PointerScrollEvent) return;
-    setState(() {
-      _camera = _camera.zoomed(
-        -event.scrollDelta.dy / 200,
-        event.localPosition,
-        size,
-      );
+  /// Asks for what is on screen once the map has stopped moving.
+  void _lookSoon() {
+    _settle?.cancel();
+    _settle = Timer(settleDelay, () {
+      if (mounted) _loader.look(_camera, _size);
     });
+  }
+
+  void _moveTo(Camera camera) {
+    setState(() => _camera = camera);
+    _lookSoon();
+  }
+
+  void _scroll(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    _moveTo(
+      _camera.zoomed(-event.scrollDelta.dy / 200, event.localPosition, _size),
+    );
   }
 
   @override
@@ -65,24 +92,25 @@ class _MapViewState extends State<MapView> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = constraints.biggest;
+        if (size != _size) {
+          _size = size;
+          _lookSoon();
+        }
         return Listener(
-          onPointerSignal: (event) => _scroll(event, size),
+          onPointerSignal: _scroll,
           child: GestureDetector(
             onScaleStart: (_) => _zoomFrom = _camera.zoom,
             onScaleUpdate: (details) {
-              setState(() {
-                var camera = _camera.panned(details.focalPointDelta);
-                if (details.scale != 1) {
-                  final target =
-                      _zoomFrom! + math.log(details.scale) / math.ln2;
-                  camera = camera.zoomed(
-                    target - camera.zoom,
-                    details.localFocalPoint,
-                    size,
-                  );
-                }
-                _camera = camera;
-              });
+              var camera = _camera.panned(details.focalPointDelta);
+              if (details.scale != 1) {
+                final target = _zoomFrom! + math.log(details.scale) / math.ln2;
+                camera = camera.zoomed(
+                  target - camera.zoom,
+                  details.localFocalPoint,
+                  size,
+                );
+              }
+              _moveTo(camera);
             },
             child: Stack(
               children: [
@@ -104,7 +132,7 @@ class _MapViewState extends State<MapView> {
                   child: _Readout(
                     camera: _camera,
                     stats: _stats,
-                    tiles: widget.tiles.length,
+                    loader: _loader,
                     drawCalls: _drawCalls,
                   ),
                 ),
@@ -120,17 +148,18 @@ class _MapViewState extends State<MapView> {
 /// What the map is doing, drawn over it.
 ///
 /// A map either holds sixty frames a second or it does not, and the only way
-/// to know which is to watch the numbers while moving it around.
+/// to know which is to watch the numbers while moving it around. The rest
+/// says how much has been asked of OpenStreetMap, which nothing else shows.
 class _Readout extends StatefulWidget {
   final Camera camera;
   final FrameStats stats;
-  final int tiles;
+  final MapLoader loader;
   final int drawCalls;
 
   const _Readout({
     required this.camera,
     required this.stats,
-    required this.tiles,
+    required this.loader,
     required this.drawCalls,
   });
 
@@ -161,6 +190,8 @@ class _ReadoutState extends State<_Readout> {
   @override
   Widget build(BuildContext context) {
     final stats = widget.stats;
+    final loader = widget.loader;
+    final tooFar = widget.camera.zoom < minimumLoadZoom;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xcc000000),
@@ -180,10 +211,25 @@ class _ReadoutState extends State<_Readout> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text('${widget.camera}'),
-              Text('${widget.tiles} tiles, ${widget.drawCalls} draw calls'),
+              Text(
+                '${loader.tiles.length} tiles, '
+                '${widget.drawCalls} draw calls',
+              ),
               Text('build  ${stats.build.toStringAsFixed(2)} ms'),
               Text('raster ${stats.raster.toStringAsFixed(2)} ms'),
               Text('worst  ${stats.worst.toStringAsFixed(2)} ms'),
+              Text('${loader.requests} requests, ${loader.waiting} waiting'),
+              Text('${loader.store}'),
+              if (loader.stopped != null)
+                Text(
+                  'stopped: ${loader.stopped}',
+                  style: const TextStyle(color: Color(0xffff8080)),
+                )
+              else if (tooFar)
+                Text(
+                  'zoom in to z${minimumLoadZoom.toInt()} to load',
+                  style: const TextStyle(color: Color(0xffffd080)),
+                ),
             ],
           ),
         ),
