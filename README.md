@@ -35,3 +35,7 @@ dart benchmark/tessellate.dart path/to/extract.osm.pbf
 
 The benchmark reports what an area costs to turn into triangles, which is the
 budget the map is drawn within.
+
+## Licence
+
+BSD 3-Clause. See [LICENSE](LICENSE).
