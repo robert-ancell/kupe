@@ -1,0 +1,257 @@
+import 'dart:typed_data';
+
+import 'package:osm/osm.dart';
+
+import '../geometry/mercator.dart';
+import '../geometry/tile.dart';
+import '../style/style.dart';
+import 'stroke.dart';
+import 'tile_mesh.dart';
+import 'triangulate.dart';
+
+/// What was built, and what it cost, for one pass over a dataset.
+class TessellationReport {
+  /// The tiles built, by id.
+  final Map<TileId, TileMesh> tiles;
+
+  /// How many elements were turned into geometry.
+  final int drawn;
+
+  /// How many elements the style had nothing to say about.
+  final int skipped;
+
+  /// How many elements could not be built, almost always a way whose nodes
+  /// run off the edge of the file.
+  final int incomplete;
+
+  /// Creates a report.
+  const TessellationReport({
+    required this.tiles,
+    required this.drawn,
+    required this.skipped,
+    required this.incomplete,
+  });
+
+  /// How many vertices were produced across every tile.
+  int get vertices =>
+      tiles.values.fold(0, (total, tile) => total + tile.vertices);
+
+  /// How many bytes of vertex data were produced.
+  int get bytes => vertices * 8;
+
+  /// How many draw calls a frame showing every tile would take.
+  int get drawCalls => tiles.values.fold(
+    0,
+    (total, tile) => total + tile.fills.length + tile.lines.length,
+  );
+}
+
+/// Turns a dataset into the triangles that draw it.
+///
+/// Geometry is grouped into tiles at [zoom] so that it can be culled and
+/// thrown away in pieces. [pixelsPerTile] is how wide a tile is expected to
+/// be on screen, which sets how wide lines are built.
+///
+/// Elements are put in the tile holding their first node and are not cut at
+/// the tile edge, so a tile's geometry can reach beyond it. That costs some
+/// precision when culling and saves having to clip every shape.
+///
+/// Set [fills] or [lines] to false to build only one of the two. Zooming
+/// changes what lines have to look like but leaves filled shapes alone, so a
+/// rebuild on zoom only has to redo the lines.
+TessellationReport tessellate(
+  OsmSubset data, {
+  required int zoom,
+  required double pixelsPerTile,
+  bool fills = true,
+  bool lines = true,
+}) {
+  final builders = <TileId, _TileBuilder>{};
+  var drawn = 0;
+  var skipped = 0;
+  var incomplete = 0;
+
+  for (final element in data.matches) {
+    if (element.tags.isEmpty) {
+      skipped += 1;
+      continue;
+    }
+
+    final built = switch (element) {
+      OsmWay() => _way(
+        element,
+        data,
+        builders,
+        zoom,
+        pixelsPerTile,
+        fills,
+        lines,
+      ),
+      OsmRelation() when fills => _relation(
+        element,
+        data,
+        builders,
+        zoom,
+        pixelsPerTile,
+      ),
+      _ => _Outcome.skipped,
+    };
+    switch (built) {
+      case _Outcome.drawn:
+        drawn += 1;
+      case _Outcome.skipped:
+        skipped += 1;
+      case _Outcome.incomplete:
+        incomplete += 1;
+    }
+  }
+
+  return TessellationReport(
+    tiles: {
+      for (final entry in builders.entries) entry.key: entry.value.build(),
+    },
+    drawn: drawn,
+    skipped: skipped,
+    incomplete: incomplete,
+  );
+}
+
+enum _Outcome { drawn, skipped, incomplete }
+
+_Outcome _way(
+  OsmWay way,
+  OsmSubset data,
+  Map<TileId, _TileBuilder> builders,
+  int zoom,
+  double pixelsPerTile,
+  bool fills,
+  bool lines,
+) {
+  final asArea = way.isClosed && enclosesArea(way.tags);
+  if (asArea ? !fills : !lines) return _Outcome.skipped;
+  final layers = asArea ? fillLayersFor(way.tags) : lineLayersFor(way.tags);
+  if (layers.isEmpty) return _Outcome.skipped;
+
+  final nodes = data.nodesOf(way);
+  if (nodes == null) return _Outcome.incomplete;
+
+  if (asArea) {
+    final area = data.areaOf(way);
+    if (area == null) return _Outcome.incomplete;
+    return _fill(area, layers, builders, zoom, pixelsPerTile);
+  }
+
+  final tile = _tileOf(nodes.first, zoom);
+  final builder = builders.putIfAbsent(
+    tile,
+    () => _TileBuilder(tile, pixelsPerTile),
+  );
+  final points = _project(nodes, tile);
+  for (final layer in layers) {
+    builder.stroke(layer, points);
+  }
+  return _Outcome.drawn;
+}
+
+_Outcome _relation(
+  OsmRelation relation,
+  OsmSubset data,
+  Map<TileId, _TileBuilder> builders,
+  int zoom,
+  double pixelsPerTile,
+) {
+  if (relation.tags['type'] != 'multipolygon') return _Outcome.skipped;
+  final layers = fillLayersFor(relation.tags);
+  if (layers.isEmpty) return _Outcome.skipped;
+
+  final area = data.areaOf(relation);
+  if (area == null) return _Outcome.incomplete;
+  return _fill(area, layers, builders, zoom, pixelsPerTile);
+}
+
+_Outcome _fill(
+  OsmArea area,
+  List<int> layers,
+  Map<TileId, _TileBuilder> builders,
+  int zoom,
+  double pixelsPerTile,
+) {
+  if (area.polygons.isEmpty) return _Outcome.incomplete;
+
+  for (final polygon in area.polygons) {
+    if (polygon.outer.isEmpty) continue;
+    final tile = _tileOf(polygon.outer.first, zoom);
+    final builder = builders.putIfAbsent(
+      tile,
+      () => _TileBuilder(tile, pixelsPerTile),
+    );
+    final outer = _project(polygon.outer, tile);
+    final inners = [for (final inner in polygon.inners) _project(inner, tile)];
+    for (final layer in layers) {
+      builder.fill(layer, outer, inners);
+    }
+  }
+  return _Outcome.drawn;
+}
+
+TileId _tileOf(OsmNode node, int zoom) =>
+    TileId.at(zoom, node.latitude, node.longitude);
+
+/// Projects nodes into the tile's own coordinates, where a whole tile is
+/// [tileExtent] across.
+List<double> _project(List<OsmNode> nodes, TileId tile) {
+  final scale = tileExtent / tile.size;
+  final out = List<double>.filled(nodes.length * 2, 0);
+  for (var i = 0; i < nodes.length; i++) {
+    final node = nodes[i];
+    out[i * 2] = (Mercator.x(node.longitude) - tile.worldX) * scale;
+    out[i * 2 + 1] = (Mercator.y(node.latitude) - tile.worldY) * scale;
+  }
+  return out;
+}
+
+/// Collects the triangles of one tile, keeping each layer's in its own list
+/// so that the whole layer can go to the GPU in one call.
+class _TileBuilder {
+  final TileId tile;
+  final double pixelsPerTile;
+  final _fills = <int, List<double>>{};
+  final _lines = <int, List<double>>{};
+
+  _TileBuilder(this.tile, this.pixelsPerTile);
+
+  void fill(int layer, List<double> outer, List<List<double>> inners) {
+    final triangles = triangulate(outer, holes: inners);
+    if (triangles == null) return;
+    (_fills[layer] ??= <double>[]).addAll(triangles);
+  }
+
+  void stroke(int layer, List<double> points) {
+    final style = mapStyle[layer];
+    final unitsPerPixel = tileExtent / pixelsPerTile;
+    final triangles = strokePolyline(
+      points,
+      style.width * unitsPerPixel,
+      cap: style.cap,
+      join: style.join,
+      unitsPerPixel: unitsPerPixel,
+    );
+    if (triangles.isEmpty) return;
+    (_lines[layer] ??= <double>[]).addAll(triangles);
+  }
+
+  TileMesh build() => TileMesh(
+    id: tile,
+    pixelsPerTile: pixelsPerTile,
+    fills: _meshes(_fills),
+    lines: _meshes(_lines),
+  );
+
+  static List<LayerMesh> _meshes(Map<int, List<double>> layers) {
+    final order = layers.keys.toList()..sort();
+    return [
+      for (final layer in order)
+        LayerMesh(layer, Float32List.fromList(layers[layer]!)),
+    ];
+  }
+}
