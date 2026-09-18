@@ -24,10 +24,20 @@ class StyleLayer {
   /// The colour to draw it in, as 0xAARRGGBB.
   final int colour;
 
-  /// For a line, how wide to draw it in pixels.
+  /// For a line, how wide the thing it draws is on the ground, in metres.
+  ///
+  /// Not a width on screen. A road is as wide as the road is, so it covers
+  /// the ground it covers at every zoom, the same as the buildings beside it.
+  /// Zoomed out that makes it thin, which is the honest thing for an editor
+  /// to show: a map viewer keeps roads legible at a glance, an editor shows
+  /// what is there.
   final double width;
 
   /// For a line, how to finish its ends.
+  ///
+  /// Square by default, which stops exactly at the last node. A round or
+  /// extended end would reach past it and hide where the way really stops,
+  /// which matters when the way is the thing being edited.
   final LineCap cap;
 
   /// For a line, how to fill its corners.
@@ -42,8 +52,8 @@ class StyleLayer {
     required this.kind,
     required this.colour,
     this.width = 0,
-    this.cap = LineCap.round,
-    this.join = LineJoin.round,
+    this.cap = LineCap.butt,
+    this.join = LineJoin.miter,
     this.minZoom = 0,
   });
 }
@@ -53,40 +63,33 @@ class StyleLayer {
 /// Casings come before the lines they sit under, so a road is drawn as a wide
 /// dark line with a narrower light one over it, and junctions read correctly
 /// because every casing in the map is already down before any fill goes on.
+///
+/// Line widths are metres of ground, so a carriageway can be compared against
+/// the imagery under it and against the buildings beside it. A casing is
+/// about a metre wider than the road it outlines.
 const mapStyle = <StyleLayer>[
   StyleLayer(id: 'earth', kind: LayerKind.fill, colour: 0xfff2efe9),
   StyleLayer(id: 'green', kind: LayerKind.fill, colour: 0xffc8e6a0),
   StyleLayer(id: 'sand', kind: LayerKind.fill, colour: 0xfff0e5c8),
   StyleLayer(id: 'water', kind: LayerKind.fill, colour: 0xffa5c9e8),
   StyleLayer(id: 'building', kind: LayerKind.fill, colour: 0xffd6cec4),
-  StyleLayer(
-    id: 'stream',
-    kind: LayerKind.line,
-    colour: 0xffa5c9e8,
-    width: 2.5,
-  ),
-  StyleLayer(
-    id: 'path',
-    kind: LayerKind.line,
-    colour: 0xffb08050,
-    width: 1.5,
-    minZoom: 15,
-  ),
-  StyleLayer(id: 'rail', kind: LayerKind.line, colour: 0xff9a9a9a, width: 2.5),
+  StyleLayer(id: 'stream', kind: LayerKind.line, colour: 0xffa5c9e8, width: 3),
+  StyleLayer(id: 'path', kind: LayerKind.line, colour: 0xffb08050, width: 1.5),
+  StyleLayer(id: 'rail', kind: LayerKind.line, colour: 0xff9a9a9a, width: 3),
   StyleLayer(
     id: 'minor-casing',
     kind: LayerKind.line,
     colour: 0xffcfcabb,
-    width: 6,
+    width: 7,
   ),
   StyleLayer(
     id: 'major-casing',
     kind: LayerKind.line,
     colour: 0xffc0a878,
-    width: 10,
+    width: 12,
   ),
-  StyleLayer(id: 'minor', kind: LayerKind.line, colour: 0xffffffff, width: 4),
-  StyleLayer(id: 'major', kind: LayerKind.line, colour: 0xfff8d98a, width: 8),
+  StyleLayer(id: 'minor', kind: LayerKind.line, colour: 0xffffffff, width: 5.5),
+  StyleLayer(id: 'major', kind: LayerKind.line, colour: 0xfff8d98a, width: 10),
 ];
 
 /// The index of the layer with the given id.

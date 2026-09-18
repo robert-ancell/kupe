@@ -37,10 +37,8 @@ Future<void> main(List<String> arguments) async {
           maxLongitude: 174.778,
         );
 
-  // The same tiles the editor reads and draws: zoom 16, seen from zoom 17,
-  // where one is 512 pixels across.
+  // The same tiles the editor reads and draws.
   const zoom = 16;
-  const pixelsPerTile = 512.0;
 
   final file = await OsmPbfFile.open(path);
   final readAt = Stopwatch()..start();
@@ -54,7 +52,7 @@ Future<void> main(List<String> arguments) async {
   print('resident ${_mb(ProcessInfo.currentRss)} after reading');
 
   final buildAt = Stopwatch()..start();
-  final report = tessellate(data, zoom: zoom, pixelsPerTile: pixelsPerTile);
+  final report = tessellate(data, zoom: zoom);
   buildAt.stop();
 
   print('');
@@ -71,7 +69,7 @@ Future<void> main(List<String> arguments) async {
   print('per layer');
   final perLayer = <int, int>{};
   for (final tile in report.tiles.values) {
-    for (final layer in [...tile.fills, ...tile.lines]) {
+    for (final layer in tile.layers) {
       perLayer[layer.layer] = (perLayer[layer.layer] ?? 0) + layer.vertices;
     }
   }
@@ -79,35 +77,6 @@ Future<void> main(List<String> arguments) async {
     ..sort((a, b) => perLayer[b]!.compareTo(perLayer[a]!));
   for (final layer in order) {
     print('  ${_pad(mapStyle[layer].id, 14)}${perLayer[layer]} vertices');
-  }
-
-  // Line widths are baked in, so zooming past the tolerance means building
-  // them again. Filled shapes cover the same ground at any zoom and are kept,
-  // so only the lines are rebuilt. This is the cost that decides whether
-  // zooming can stay smooth.
-  print('');
-  print('rebuild lines on zoom');
-  for (final at in [0.5, 1.5, 4.0]) {
-    final runs = <int>[];
-    late TessellationReport rebuilt;
-    for (var i = 0; i < 5; i++) {
-      final clock = Stopwatch()..start();
-      rebuilt = tessellate(
-        data,
-        zoom: zoom,
-        pixelsPerTile: pixelsPerTile * at,
-        fills: false,
-      );
-      clock.stop();
-      runs.add(clock.elapsedMicroseconds);
-    }
-    runs.sort();
-    final median = runs[runs.length ~/ 2];
-    print(
-      '  ${_pad('x$at', 8)}${_ms(median)}'
-      '${rebuilt.vertices} line vertices, '
-      '${_ms(median ~/ report.tiles.length)}a tile',
-    );
   }
 }
 

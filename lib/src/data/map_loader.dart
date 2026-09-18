@@ -41,24 +41,6 @@ const maximumInFlight = 2;
 /// How far a tile will be split when the API says it holds too much.
 const maximumSplits = 2;
 
-/// How far a line's width may drift from what the style asks for before it is
-/// built again.
-///
-/// A line is a fixed number of pixels wide whatever the zoom, but its width
-/// is baked into its triangles, so zooming stretches it. A tenth is under a
-/// pixel on any line the style draws, which is not something anyone can pick
-/// out mid-gesture, and it keeps a pinch from rebuilding the screen twice.
-const maximumWidthError = 0.1;
-
-/// How long is spent rebuilding line widths in one go.
-///
-/// Rebuilding happens on the interface thread, between frames, so it is
-/// bounded rather than run to completion: a tile or two catch up each frame
-/// and the rest follow. A tile costs a few milliseconds, so this is a quarter
-/// of a frame's work at sixty a second, leaving the rest of the frame alone
-/// on a machine slower than the one it was measured on.
-const restrokeBudget = Duration(milliseconds: 4);
-
 /// Reads the visible map from OpenStreetMap, a tile at a time.
 ///
 /// Only what is on screen is asked for, only once, and only while the map is
@@ -76,12 +58,9 @@ class MapLoader {
   final void Function() onChanged;
 
   final _built = <TileId, TileMesh>{};
-  final _claimed = <TileId, List<OsmElement>>{};
   final _asked = <TileId>{};
   var _queue = <TileId>[];
   var _running = 0;
-  Camera? _camera;
-  Size _size = Size.zero;
 
   /// Why loading stopped, or null while it has not.
   String? stopped;
@@ -98,76 +77,6 @@ class MapLoader {
   /// How many requests have been made to the API.
   int get requests => api.requests;
 
-  /// How many tiles on screen are drawn at a width that no longer matches
-  /// the zoom.
-  int get stale => _built.values.where(_isStale).length;
-
-  /// Whether a tile is on screen and drawn at the wrong width.
-  ///
-  /// A tile that has been scrolled away from is left as it is. Rebuilding it
-  /// would be work nobody can see, and it will be rebuilt if it is ever
-  /// looked at again.
-  bool _isStale(TileMesh mesh) {
-    final camera = _camera;
-    if (camera == null || !_isVisible(mesh.id, camera)) return false;
-    final wanted = camera.pixelsPerTile(mesh.id.zoom);
-    return (wanted - mesh.pixelsPerTile).abs() >
-        mesh.pixelsPerTile * maximumWidthError;
-  }
-
-  bool _isVisible(TileId tile, Camera camera) {
-    if (_size.isEmpty) return false;
-    final view = camera.worldBounds(_size);
-    return tile.worldX < view.right &&
-        tile.worldX + tile.size > view.left &&
-        tile.worldY < view.bottom &&
-        tile.worldY + tile.size > view.top;
-  }
-
-  /// Rebuilds the lines of tiles whose widths no longer match the zoom, for
-  /// as long as [restrokeBudget] allows, and says whether any are left.
-  ///
-  /// Nearest the middle of the view first, so that what is being looked at
-  /// comes right before what is at the edge. Filled shapes are left alone;
-  /// only the lines carry a width.
-  bool restroke() {
-    final camera = _camera;
-    if (camera == null) return false;
-
-    final stale = _built.values.where(_isStale).toList()
-      ..sort(
-        (a, b) =>
-            _fromCentre(a.id, camera).compareTo(_fromCentre(b.id, camera)),
-      );
-    if (stale.isEmpty) return false;
-
-    final clock = Stopwatch()..start();
-    for (final mesh in stale) {
-      final claimed = _claimed[mesh.id];
-      if (claimed == null) continue;
-      final wanted = camera.pixelsPerTile(mesh.id.zoom);
-      final report = tessellate(
-        store.subsetOf(claimed),
-        zoom: mesh.id.zoom,
-        pixelsPerTile: wanted,
-        fills: false,
-        into: mesh.id,
-      );
-      _built[mesh.id] = mesh.withLines(
-        report.tiles[mesh.id]?.lines ?? const [],
-        wanted,
-      );
-      if (clock.elapsed > restrokeBudget) break;
-    }
-    return _built.values.any(_isStale);
-  }
-
-  double _fromCentre(TileId tile, Camera camera) {
-    final dx = tile.worldX + tile.size / 2 - camera.x;
-    final dy = tile.worldY + tile.size / 2 - camera.y;
-    return dx * dx + dy * dy;
-  }
-
   /// Asks for whatever [camera] can see and has not been read yet.
   ///
   /// Safe to call on every frame of a pan: tiles already asked for are not
@@ -175,8 +84,6 @@ class MapLoader {
   /// always holds what is on screen now rather than everywhere that has been
   /// crossed on the way.
   void look(Camera camera, Size size) {
-    _camera = camera;
-    _size = size;
     if (stopped != null) return;
     if (camera.zoom < minimumLoadZoom) {
       _queue = [];
@@ -262,21 +169,13 @@ class MapLoader {
       onChanged();
       return;
     }
-    final camera = _camera;
     final report = tessellate(
       store.subsetOf(fresh),
       zoom: tile.zoom,
-      pixelsPerTile: camera?.pixelsPerTile(tile.zoom) ?? tilePixels,
       into: tile,
     );
     final mesh = report.tiles[tile];
-    if (mesh != null) {
-      _built[tile] = mesh;
-      // Kept so the lines can be built again at another zoom without asking
-      // the API a second time. These are references into the store, not
-      // copies of it.
-      _claimed[tile] = fresh;
-    }
+    if (mesh != null) _built[tile] = mesh;
     onChanged();
   }
 }

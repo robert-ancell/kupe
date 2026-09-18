@@ -74,6 +74,16 @@ class TileId {
   String toString() => '$zoom/$x/$y';
 }
 
+/// How large a tile is on screen at its own zoom level.
+const tilePixels = 256.0;
+
+/// The closest the map is ever drawn at.
+///
+/// Geometry is built once and never again, so anything that has to be cut up
+/// into straight edges is cut finely enough for the closest look it will ever
+/// get rather than for the zoom it happened to be built at.
+const maximumZoom = 22.0;
+
 /// The side of a tile in the local coordinates geometry is stored in.
 ///
 /// Positions are held relative to their tile and as 32 bit floats, which only

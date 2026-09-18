@@ -12,49 +12,29 @@ import 'tile_mesh.dart';
 /// Handing a list of numbers to the GPU means uploading it, which is work
 /// that must not happen while a frame is being drawn. Each mesh is converted
 /// once, the first time it is needed, and kept until the tile is dropped.
+/// Nothing about it changes with the zoom, so nothing goes up twice.
 class GpuTileMesh {
   /// Which tile this covers.
   final TileId id;
 
-  /// The uploaded filled layers, paired with their index in the style.
-  final List<(int, ui.Vertices)> fills;
+  /// The uploaded layers, paired with their index in the style.
+  final List<(int, ui.Vertices)> layers;
 
-  /// The uploaded stroked layers, paired with their index in the style.
-  ///
-  /// These are replaced when the map has been zoomed far enough that the
-  /// widths they were built at are no longer right. The fills beside them are
-  /// not, because they cover the same ground at any zoom.
-  List<(int, ui.Vertices)> lines;
-
-  GpuTileMesh._(this.id, this.fills, this.lines);
+  GpuTileMesh._(this.id, this.layers);
 
   /// Uploads [mesh], skipping any layer with nothing in it.
-  factory GpuTileMesh.of(TileMesh mesh) =>
-      GpuTileMesh._(mesh.id, _upload(mesh.fills), _upload(mesh.lines));
-
-  /// Replaces the stroked layers with the ones in [mesh], leaving the fills
-  /// where they are.
-  void restroke(TileMesh mesh) {
-    for (final (_, vertices) in lines) {
-      vertices.dispose();
-    }
-    lines = _upload(mesh.lines);
-  }
-
-  static List<(int, ui.Vertices)> _upload(List<LayerMesh> layers) {
-    return <(int, ui.Vertices)>[
-      for (final layer in layers)
-        if (layer.triangles.isNotEmpty)
-          (
-            layer.layer,
-            ui.Vertices.raw(ui.VertexMode.triangles, layer.triangles),
-          ),
-    ];
-  }
+  factory GpuTileMesh.of(TileMesh mesh) => GpuTileMesh._(mesh.id, [
+    for (final layer in mesh.layers)
+      if (layer.triangles.isNotEmpty)
+        (
+          layer.layer,
+          ui.Vertices.raw(ui.VertexMode.triangles, layer.triangles),
+        ),
+  ]);
 
   /// Releases the uploaded triangles.
   void dispose() {
-    for (final (_, vertices) in [...fills, ...lines]) {
+    for (final (_, vertices) in layers) {
       vertices.dispose();
     }
   }
@@ -94,36 +74,20 @@ class MapPainter extends CustomPainter {
     for (var layer = 0; layer < mapStyle.length; layer++) {
       final paint = _paints[layer];
       for (final tile in tiles) {
-        calls += _draw(canvas, size, tile, tile.fills, layer, paint);
-        calls += _draw(canvas, size, tile, tile.lines, layer, paint);
+        for (final (index, vertices) in tile.layers) {
+          if (index != layer) continue;
+          final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
+          final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
+          canvas.save();
+          canvas.translate(origin.dx, origin.dy);
+          canvas.scale(scale, scale);
+          canvas.drawVertices(vertices, BlendMode.srcOver, paint);
+          canvas.restore();
+          calls += 1;
+        }
       }
     }
     onDrawn?.call(calls);
-  }
-
-  /// Draws whichever of [uploaded] belongs to [layer], and says how many
-  /// calls that took.
-  int _draw(
-    Canvas canvas,
-    Size size,
-    GpuTileMesh tile,
-    List<(int, ui.Vertices)> uploaded,
-    int layer,
-    Paint paint,
-  ) {
-    var calls = 0;
-    for (final (index, vertices) in uploaded) {
-      if (index != layer) continue;
-      final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
-      final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
-      canvas.save();
-      canvas.translate(origin.dx, origin.dy);
-      canvas.scale(scale, scale);
-      canvas.drawVertices(vertices, BlendMode.srcOver, paint);
-      canvas.restore();
-      calls += 1;
-    }
-    return calls;
   }
 
   @override

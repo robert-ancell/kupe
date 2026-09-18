@@ -4,9 +4,6 @@ import 'dart:ui';
 import '../geometry/mercator.dart';
 import '../geometry/tile.dart';
 
-/// How large a tile is on screen at its own zoom level.
-const tilePixels = 256.0;
-
 /// Where the map is being looked at from.
 ///
 /// The centre is held in world coordinates rather than degrees so that
@@ -101,7 +98,7 @@ class Camera {
   static const minZoom = 0.0;
 
   /// The closest the map zooms in, past which there is nothing more to see.
-  static const maxZoom = 22.0;
+  static const maxZoom = maximumZoom;
 
   @override
   String toString() =>
