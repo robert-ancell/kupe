@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'src/data/map_loader.dart';
+import 'src/data/tile_cache.dart';
 import 'src/map/camera.dart';
 import 'src/map/map_view.dart';
 
@@ -11,20 +15,46 @@ import 'src/map/map_view.dart';
 /// is the application, not the person using it; nothing about them is sent.
 const contact = 'kupe +https://github.com/robert-ancell/kupe';
 
-/// Opens the editor over a place on the map.
+/// Where the map opens when there is nowhere it was left.
+const _somewhere = (latitude: -36.8485, longitude: 174.7633, zoom: 17.0);
+
+/// Opens the editor where it was last left, or over a given place.
 ///
 /// Usage: `kupe [latitude longitude [zoom]]`
-void main(List<String> arguments) {
-  final camera = arguments.length >= 2
+Future<void> main(List<String> arguments) async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final asked = arguments.length >= 2
       ? Camera.at(
           latitude: double.parse(arguments[0]),
           longitude: double.parse(arguments[1]),
           zoom: arguments.length >= 3 ? double.parse(arguments[2]) : 17,
         )
-      // Central Auckland, until there is somewhere to remember a place.
-      : Camera.at(latitude: -36.8485, longitude: 174.7633, zoom: 17);
+      : null;
 
-  runApp(KupeApp(camera: camera));
+  // Somewhere to keep what has been read. Without it the editor still works
+  // and simply reads everything again each time.
+  TileCache? cache;
+  try {
+    final directory = await getApplicationCacheDirectory();
+    cache = await TileCache.open(Directory('${directory.path}/tiles'));
+  } on Exception {
+    cache = null;
+  }
+
+  runApp(
+    KupeApp(
+      camera:
+          asked ??
+          cache?.camera ??
+          Camera.at(
+            latitude: _somewhere.latitude,
+            longitude: _somewhere.longitude,
+            zoom: _somewhere.zoom,
+          ),
+      cache: cache,
+    ),
+  );
 }
 
 /// The editor.
@@ -32,8 +62,11 @@ class KupeApp extends StatelessWidget {
   /// Where to open the map.
   final Camera camera;
 
+  /// Where boxes already read are kept between runs.
+  final TileCache? cache;
+
   /// Creates the app.
-  const KupeApp({super.key, required this.camera});
+  const KupeApp({super.key, required this.camera, this.cache});
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +79,7 @@ class KupeApp extends StatelessWidget {
             fetch: httpFetch(contact: contact, concurrency: maximumInFlight),
           ),
           initialCamera: camera,
+          cache: cache,
         ),
       ),
     );

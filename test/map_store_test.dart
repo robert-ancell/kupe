@@ -1,4 +1,5 @@
 import 'package:kupe/src/data/map_store.dart';
+import 'package:kupe/src/geometry/tile.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
 
@@ -16,10 +17,13 @@ OsmWay _way(int id, List<int> nodes, {int? version}) => OsmWay(
   info: version == null ? null : OsmInfo(version: version),
 );
 
+const _a = TileId(16, 1, 1);
+const _b = TileId(16, 2, 1);
+
 void main() {
   test('holds what it is given', () {
     final store = MapStore();
-    store.add([
+    store.add(_a, [
       _node(1),
       _way(10, [1]),
     ]);
@@ -30,19 +34,19 @@ void main() {
 
   test('gives back only what no earlier box took', () {
     final store = MapStore();
-    expect(store.add([_node(1), _node(2)]).length, 2);
+    expect(store.add(_a, [_node(1), _node(2)]).length, 2);
     // The next box along shares the way on the boundary and its nodes.
-    expect(store.add([_node(2), _node(3)]).map((e) => e.id), [3]);
+    expect(store.add(_b, [_node(2), _node(3)]).map((e) => e.id), [3]);
   });
 
   test('draws a way on a boundary once', () {
     final store = MapStore();
-    store.add([
+    store.add(_a, [
       _node(1),
       _node(2),
       _way(10, [1, 2]),
     ]);
-    final second = store.add([
+    final second = store.add(_a, [
       _node(2),
       _node(3),
       _way(10, [1, 2]),
@@ -54,7 +58,7 @@ void main() {
     final store = MapStore();
     // The API answers with every node of a way, even the ones outside the
     // box, which is what lets the way be drawn straight away.
-    store.add([
+    store.add(_a, [
       _node(1),
       _node(2),
       _node(3),
@@ -67,34 +71,71 @@ void main() {
 
   test('keeps the newer of two versions of an element', () {
     final store = MapStore();
-    store.add([_node(1, version: 3)]);
-    store.add([_node(1, version: 5)]);
+    store.add(_a, [_node(1, version: 3)]);
+    store.add(_a, [_node(1, version: 5)]);
     expect(store.nodes[1]!.info!.version, 5);
   });
 
   test('does not go back to an older version', () {
     final store = MapStore();
-    store.add([_node(1, version: 5)]);
-    store.add([_node(1, version: 3)]);
+    store.add(_a, [_node(1, version: 5)]);
+    store.add(_a, [_node(1, version: 3)]);
     expect(store.nodes[1]!.info!.version, 5);
   });
 
   test('takes the later answer when neither says its version', () {
     final store = MapStore();
-    store.add([_node(1)]);
+    store.add(_a, [_node(1)]);
     final second = _node(1);
-    store.add([second]);
+    store.add(_a, [second]);
     expect(identical(store.nodes[1], second), isTrue);
   });
 
   test('counts each element once however often it arrives', () {
     final store = MapStore();
     for (var i = 0; i < 5; i++) {
-      store.add([
+      store.add(_a, [
         _node(1),
         _way(10, [1]),
       ]);
     }
     expect(store.length, 2);
+  });
+  test('takes back what one box drew, leaving its neighbour alone', () {
+    final store = MapStore();
+    store.add(_a, [
+      _node(1),
+      _way(10, [1]),
+    ]);
+    store.add(_b, [_node(2)]);
+    store.release(_a);
+    expect(store.nodes.keys, [2]);
+    expect(store.ways, isEmpty);
+  });
+
+  test('draws a box again after it was taken back', () {
+    final store = MapStore();
+    store.add(_a, [_node(1), _node(2)]);
+    store.release(_a);
+    expect(store.add(_a, [_node(1), _node(2)]).length, 2);
+  });
+
+  test('loses an element that a box no longer holds', () {
+    // The only way a deletion is ever seen: an answer says what is there,
+    // never what has gone, so the box has to be taken back first.
+    final store = MapStore();
+    store.add(_a, [_node(1), _node(2)]);
+    store.release(_a);
+    store.add(_a, [_node(1)]);
+    expect(store.nodes.keys, [1]);
+  });
+
+  test('leaves an element another box claimed', () {
+    final store = MapStore();
+    store.add(_a, [_node(1)]);
+    // The neighbour shares the node but did not claim it.
+    store.add(_b, [_node(1), _node(2)]);
+    store.release(_b);
+    expect(store.nodes.keys, contains(1));
   });
 }

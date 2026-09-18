@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:kupe/src/data/map_loader.dart';
+import 'package:kupe/src/data/tile_cache.dart';
 import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:osm/osm.dart';
@@ -56,10 +57,14 @@ class _Api {
   }
 }
 
-MapLoader _loaderOn(_Api server, {void Function()? onChanged}) => MapLoader(
+MapLoader _loaderOn(_Api server, {TileCache? cache}) => MapLoader(
   api: OsmApi(fetch: server.fetch),
-  onChanged: onChanged ?? () {},
+  cache: cache,
+  onChanged: () {},
 );
+
+Camera _at(double zoom) =>
+    Camera.at(latitude: -36.85, longitude: 174.76, zoom: zoom);
 
 /// Lets every queued request run to completion.
 Future<void> _drain() async {
@@ -287,6 +292,81 @@ void main() {
       );
       await _drain();
       expect(loader.crowded, isFalse);
+    });
+  });
+  group('what is held on disk', () {
+    late Directory work;
+
+    setUp(() async {
+      work = await Directory.systemTemp.createTemp('kupe_loader_test');
+    });
+
+    tearDown(() async {
+      if (work.existsSync()) await work.delete(recursive: true);
+    });
+
+    test('keeps what it read for next time', () async {
+      final cache = await TileCache.open(work);
+      final server = _Api();
+      _loaderOn(server, cache: cache).look(_at(17), _size);
+      await _drain();
+      expect(cache.tiles.length, server.asked.length);
+    });
+
+    test('opens from disk without asking the API', () async {
+      final cache = await TileCache.open(work);
+      final first = _Api();
+      _loaderOn(first, cache: cache).look(_at(17), _size);
+      await _drain();
+      expect(first.asked, isNotEmpty);
+
+      // A second run over the same place, with the cache still there.
+      final again = await TileCache.open(work);
+      final second = _Api();
+      final loader = _loaderOn(second, cache: again);
+      loader.look(_at(17), _size);
+      await _drain();
+      expect(second.asked, isEmpty);
+      expect(loader.tiles, isNotEmpty);
+    });
+
+    test('remembers where the map was left', () async {
+      final cache = await TileCache.open(work);
+      _loaderOn(_Api(), cache: cache).look(_at(17), _size);
+      await _drain();
+      final again = await TileCache.open(work);
+      expect(again.camera, isNotNull);
+      expect(again.camera!.zoom, 17);
+    });
+
+    test('reads a box again when its file will not open', () async {
+      final cache = await TileCache.open(work);
+      final first = _Api();
+      _loaderOn(first, cache: cache).look(_at(17), _size);
+      await _drain();
+
+      // Something truncated the files.
+      for (final file in work.listSync(recursive: true)) {
+        if (file is File && file.path.endsWith('.osm.pbf')) {
+          file.writeAsBytesSync([0, 1, 2]);
+        }
+      }
+
+      final again = await TileCache.open(work);
+      final second = _Api();
+      final loader = _loaderOn(second, cache: again);
+      loader.look(_at(17), _size);
+      await _drain();
+      expect(second.asked, isNotEmpty);
+      expect(loader.tiles, isNotEmpty);
+    });
+
+    test('works with no cache at all', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(_at(17), _size);
+      await _drain();
+      expect(loader.tiles, isNotEmpty);
     });
   });
 }

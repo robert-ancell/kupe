@@ -8,6 +8,7 @@ import '../map/camera.dart';
 import '../render/tessellate.dart';
 import '../render/tile_mesh.dart';
 import 'map_store.dart';
+import 'tile_cache.dart';
 
 /// How far out the map still reads data.
 ///
@@ -79,6 +80,9 @@ class MapLoader {
   /// The API to read from.
   final OsmApi api;
 
+  /// Where boxes already read are kept between runs, if anywhere.
+  final TileCache? cache;
+
   /// Everything read so far.
   final MapStore store = MapStore();
 
@@ -89,6 +93,8 @@ class MapLoader {
   final _asked = <TileId>{};
   var _queue = <TileId>[];
   var _running = 0;
+  Camera? _camera;
+  Size _size = Size.zero;
 
   /// Why loading stopped, or null while it has not.
   String? stopped;
@@ -103,7 +109,7 @@ class MapLoader {
   var _spent = 0;
 
   /// Creates a loader.
-  MapLoader({required this.api, required this.onChanged});
+  MapLoader({required this.api, required this.onChanged, this.cache});
 
   /// The tiles that have been built.
   List<TileMesh> get tiles => _built.values.toList();
@@ -121,6 +127,8 @@ class MapLoader {
   /// always holds what is on screen now rather than everywhere that has been
   /// crossed on the way.
   void look(Camera camera, Size size) {
+    _camera = camera;
+    _size = size;
     if (stopped != null) return;
     if (camera.zoom < minimumLoadZoom) {
       _queue = [];
@@ -141,10 +149,113 @@ class MapLoader {
           ).compareTo(_distance(b, camera, size, centre)),
         );
 
-    _queue = wanted.take(maximumTilesPerView).toList();
+    final capped = wanted.take(maximumTilesPerView).toList();
     _spent = 0;
     crowded = false;
+
+    // Anything already on disk is drawn straight away and costs the API
+    // nothing. Only what is left goes into the queue.
+    _queue = [];
+    for (final tile in capped) {
+      if (cache?.holds(tile) ?? false) {
+        if (_asked.add(tile)) unawaited(_fromCache(tile));
+      } else {
+        _queue.add(tile);
+      }
+    }
     _pump();
+    unawaited(cache?.saveCamera(camera) ?? Future<void>.value());
+  }
+
+  /// Draws a box from what is held on disk.
+  ///
+  /// A file that will not read is dropped and the box asked for again, since
+  /// the only thing it cost was the reading.
+  Future<void> _fromCache(TileId tile) async {
+    final elements = await cache!.read(tile);
+    if (elements == null) {
+      _asked.remove(tile);
+      _queue.add(tile);
+      _pump();
+      return;
+    }
+    _draw(tile, elements);
+  }
+
+  /// Checks what is held against what has been edited, and reads again only
+  /// the boxes that have.
+  ///
+  /// The API carries no entity tag and answers a conditional request with the
+  /// whole body, so there is no asking whether a box is still current. What
+  /// can be asked is what has been edited over the area since it was read,
+  /// which is one request however many boxes are being checked.
+  ///
+  /// A changeset covers the box around everything in it, so a bot edit
+  /// spanning a country marks everything under it as worth reading again.
+  /// That costs reads, never correctness.
+  Future<void> refresh() async {
+    final camera = _camera;
+    final held = cache;
+    if (camera == null || held == null || stopped != null) return;
+    if (camera.zoom < minimumLoadZoom) return;
+
+    final checking = [
+      for (final tile in held.tiles)
+        if (tile.isStale && _isVisible(tile.id, camera)) tile,
+    ];
+    if (checking.isEmpty) return;
+
+    final since = checking
+        .map((tile) => tile.at)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+
+    final List<OsmChangeset>? changesets;
+    try {
+      changesets = await api.changesetsIn(
+        camera.groundBounds(_size),
+        since: since,
+      );
+    } on OsmHttpException {
+      // Not being able to check is not a reason to throw away what is held.
+      return;
+    }
+
+    for (final tile in checking) {
+      // No answer at all means more edits than are worth following, so
+      // everything held here is read again rather than patched.
+      final touched =
+          changesets == null ||
+          changesets.any(
+            (changeset) => changeset.bounds?.intersects(tile.id.bounds) ?? true,
+          );
+      if (touched) {
+        await _invalidate(tile.id);
+      } else {
+        await held.markChecked(tile.id);
+      }
+    }
+    look(camera, _size);
+  }
+
+  /// Forgets a box so that it is read again from the start.
+  ///
+  /// What it drew is taken back first. An answer says what is there and never
+  /// what has gone, so an element deleted since would otherwise stay on the
+  /// map for ever.
+  Future<void> _invalidate(TileId tile) async {
+    store.release(tile);
+    _built.remove(tile);
+    _asked.remove(tile);
+    await cache?.forget(tile);
+  }
+
+  bool _isVisible(TileId tile, Camera camera) {
+    if (_size.isEmpty) return false;
+    final view = camera.worldBounds(_size);
+    return tile.worldX < view.right &&
+        tile.worldX + tile.size > view.left &&
+        tile.worldY < view.bottom &&
+        tile.worldY + tile.size > view.top;
   }
 
   /// Whether a tile's ground has already been read, by itself or by a coarser
@@ -197,6 +308,7 @@ class MapLoader {
     try {
       final elements = await api.map(tile.bounds);
       _draw(tile, elements);
+      await cache?.write(tile, elements);
     } on OsmTooMuchDataException {
       // The box holds more than the API will hand over at once. Its quarters
       // each hold a quarter as much, so ask for those instead, for as long as
@@ -235,7 +347,7 @@ class MapLoader {
     // reaches into the next one still has its nodes. Only what no earlier
     // tile already drew is built, which is what keeps the seams from being
     // drawn twice.
-    final fresh = store.add(elements);
+    final fresh = store.add(tile, elements);
     if (fresh.isEmpty) {
       onChanged();
       return;

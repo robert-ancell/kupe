@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
 
 import '../data/map_loader.dart';
+import '../data/tile_cache.dart';
 import '../geometry/tile.dart';
 import '../render/map_painter.dart';
 import 'camera.dart';
@@ -17,6 +18,14 @@ import 'frame_stats.dart';
 /// Long enough that a drag across a city is one request for where it stopped
 /// rather than a request for everywhere it passed over.
 const settleDelay = Duration(milliseconds: 250);
+
+/// How long the map waits before checking what it drew from disk against what
+/// has been edited since.
+///
+/// After the reading, so that a view arriving from the cache is on screen
+/// before anything is asked about it, and long enough that moving on again
+/// cancels it.
+const checkDelay = Duration(seconds: 2);
 
 /// The map, read from OpenStreetMap as it is looked at.
 ///
@@ -30,8 +39,16 @@ class MapView extends StatefulWidget {
   /// Where to start looking from.
   final Camera initialCamera;
 
+  /// Where boxes already read are kept between runs.
+  final TileCache? cache;
+
   /// Creates the map.
-  const MapView({super.key, required this.api, required this.initialCamera});
+  const MapView({
+    super.key,
+    required this.api,
+    required this.initialCamera,
+    this.cache,
+  });
 
   @override
   State<MapView> createState() => _MapViewState();
@@ -41,6 +58,7 @@ class _MapViewState extends State<MapView> {
   late Camera _camera = widget.initialCamera;
   late final MapLoader _loader = MapLoader(
     api: widget.api,
+    cache: widget.cache,
     onChanged: () {
       if (mounted) setState(() {});
     },
@@ -48,6 +66,7 @@ class _MapViewState extends State<MapView> {
   final _uploaded = <TileId, GpuTileMesh>{};
   final _stats = FrameStats();
   Timer? _settle;
+  Timer? _check;
   Size _size = Size.zero;
   var _drawCalls = 0;
   double? _zoomFrom;
@@ -55,6 +74,7 @@ class _MapViewState extends State<MapView> {
   @override
   void dispose() {
     _settle?.cancel();
+    _check?.cancel();
     for (final mesh in _uploaded.values) {
       mesh.dispose();
     }
@@ -72,10 +92,18 @@ class _MapViewState extends State<MapView> {
   ];
 
   /// Asks for what is on screen once the map has stopped moving.
+  ///
+  /// Anything already held on disk is drawn at once; the rest is read. A
+  /// little later, what was drawn from disk is checked against what has been
+  /// edited since, which is a single request whatever is on screen.
   void _lookSoon() {
     _settle?.cancel();
+    _check?.cancel();
     _settle = Timer(settleDelay, () {
       if (mounted) _loader.look(_camera, _size);
+    });
+    _check = Timer(checkDelay, () {
+      if (mounted) unawaited(_loader.refresh());
     });
   }
 
@@ -227,6 +255,12 @@ class _ReadoutState extends State<_Readout> {
                 'z${requestZoomFor(widget.camera)} boxes',
               ),
               Text('${loader.store}'),
+              if (loader.cache != null)
+                Text(
+                  '${loader.cache!.tiles.length} boxes held, '
+                  '${(loader.cache!.bytes / (1 << 20)).toStringAsFixed(1)} '
+                  'MB on disk',
+                ),
               if (loader.stopped != null)
                 Text(
                   'stopped: ${loader.stopped}',

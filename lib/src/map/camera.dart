@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:osm/osm.dart';
+
 import '../geometry/mercator.dart';
 import '../geometry/tile.dart';
 
@@ -56,6 +58,18 @@ class Camera {
     final topLeft = toWorld(Offset.zero, size);
     final bottomRight = toWorld(Offset(size.width, size.height), size);
     return Rect.fromPoints(topLeft, bottomRight);
+  }
+
+  /// The ground a view of [size] shows, which is what the API is asked
+  /// about.
+  OsmBounds groundBounds(Size size) {
+    final view = worldBounds(size);
+    return OsmBounds(
+      minLatitude: Mercator.latitude(view.bottom.clamp(0.0, 1.0)),
+      minLongitude: Mercator.longitude(view.left.clamp(0.0, 1.0)),
+      maxLatitude: Mercator.latitude(view.top.clamp(0.0, 1.0)),
+      maxLongitude: Mercator.longitude(view.right.clamp(0.0, 1.0)),
+    );
   }
 
   /// The tiles at [zoom] needed to cover a view of [size].
