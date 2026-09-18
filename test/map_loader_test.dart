@@ -35,13 +35,21 @@ class _Api {
     if (refuseWiderThan != null && east - west > refuseWiderThan!) {
       throw OsmHttpException(uri, HttpStatus.badRequest);
     }
-    // One node in the middle of the box, with an id of its own.
-    final id = asked.length;
+    // A short road across the middle of the box, with ids of its own, so
+    // that every tile has a line in it to draw and to build again.
+    final id = asked.length * 10;
+    final lat = (south + north) / 2;
     return Uint8List.fromList(
       utf8.encode(
         '<osm version="0.6">'
-        '<node id="$id" lat="${(south + north) / 2}" '
-        'lon="${(west + east) / 2}" version="1"/>'
+        '<node id="$id" lat="$lat" lon="${west + (east - west) * 0.25}" '
+        'version="1"/>'
+        '<node id="${id + 1}" lat="$lat" '
+        'lon="${west + (east - west) * 0.75}" version="1"/>'
+        '<way id="${id + 2}" version="1">'
+        '<nd ref="$id"/><nd ref="${id + 1}"/>'
+        '<tag k="highway" v="residential"/>'
+        '</way>'
         '</osm>',
       ),
     );
@@ -186,6 +194,121 @@ void main() {
     );
     await _drain();
     expect(loader.store.length, held);
+  });
+  group('line widths', () {
+    test('a fresh tile is built for the zoom it was read at', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      expect(loader.tiles, isNotEmpty);
+      expect(loader.stale, 0);
+    });
+
+    test('zooming leaves the widths behind', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 18),
+        _size,
+      );
+      expect(loader.stale, greaterThan(0));
+    });
+
+    test('a small zoom is inside the tolerance and rebuilds nothing', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      // A twentieth of a zoom level is a three and a half per cent error.
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17.05),
+        _size,
+      );
+      expect(loader.stale, 0);
+      expect(loader.restroke(), isFalse);
+    });
+
+    test('rebuilding catches the widths up with the zoom', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 19),
+        _size,
+      );
+      var passes = 0;
+      while (loader.restroke() && passes < 100) {
+        passes += 1;
+      }
+      expect(loader.stale, 0);
+    });
+
+    test('rebuilding asks the API for nothing', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      final asked = server.asked.length;
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 19),
+        _size,
+      );
+      while (loader.restroke()) {}
+      expect(server.asked.length, asked);
+    });
+
+    test('rebuilding keeps the filled shapes as they were', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      final before = {for (final t in loader.tiles) t.id: t.fills};
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 19),
+        _size,
+      );
+      while (loader.restroke()) {}
+      for (final tile in loader.tiles) {
+        expect(identical(tile.fills, before[tile.id]), isTrue);
+      }
+    });
+    test('leaves a tile that has been scrolled away from alone', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      expect(loader.tiles, isNotEmpty);
+      // Zoomed in, which would leave every width behind, and moved to the
+      // other side of the world, where none of them can be seen.
+      loader.look(Camera.at(latitude: 51.5, longitude: -0.12, zoom: 19), _size);
+      expect(loader.stale, 0);
+      expect(loader.restroke(), isFalse);
+    });
   });
 }
 

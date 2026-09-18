@@ -3,9 +3,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:osm/osm.dart';
 
 import '../data/map_loader.dart';
+import '../geometry/tile.dart';
 import '../render/map_painter.dart';
 import '../render/tile_mesh.dart';
 import 'camera.dart';
@@ -45,27 +47,66 @@ class _MapViewState extends State<MapView> {
       if (mounted) setState(() {});
     },
   );
-  final _uploaded = <TileMesh, GpuTileMesh>{};
+  final _uploaded = <TileId, _Uploaded>{};
   final _stats = FrameStats();
   Timer? _settle;
   Size _size = Size.zero;
   var _drawCalls = 0;
+  var _restroking = false;
   double? _zoomFrom;
 
   @override
   void dispose() {
     _settle?.cancel();
-    for (final mesh in _uploaded.values) {
-      mesh.dispose();
+    for (final held in _uploaded.values) {
+      held.gpu.dispose();
     }
     _stats.dispose();
     super.dispose();
   }
 
-  List<GpuTileMesh> get _meshes => [
-    for (final tile in _loader.tiles)
-      _uploaded.putIfAbsent(tile, () => GpuTileMesh.of(tile)),
-  ];
+  /// The tiles as the engine holds them, uploading what has not been uploaded
+  /// and replacing the lines of anything that has been built again.
+  List<GpuTileMesh> get _meshes {
+    final meshes = <GpuTileMesh>[];
+    for (final tile in _loader.tiles) {
+      var held = _uploaded[tile.id];
+      if (held == null) {
+        held = _Uploaded(tile, GpuTileMesh.of(tile));
+        _uploaded[tile.id] = held;
+      } else if (!identical(held.source, tile)) {
+        // Rebuilding widths leaves the filled shapes untouched and hands back
+        // the same list, so only the lines have to go up again.
+        if (identical(held.source.fills, tile.fills)) {
+          held.gpu.restroke(tile);
+          held.source = tile;
+        } else {
+          held.gpu.dispose();
+          held = _Uploaded(tile, GpuTileMesh.of(tile));
+          _uploaded[tile.id] = held;
+        }
+      }
+      meshes.add(held.gpu);
+    }
+    return meshes;
+  }
+
+  /// Catches the line widths up with the zoom, a few tiles at a time.
+  ///
+  /// Zooming stretches lines that were built for another zoom. Rebuilding
+  /// every tile on screen at once would drop a frame, so it is done between
+  /// frames until there is nothing stale left.
+  void _restrokeSoon() {
+    if (_restroking) return;
+    _restroking = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _restroking = false;
+      if (!mounted) return;
+      final more = _loader.restroke();
+      setState(() {});
+      if (more) _restrokeSoon();
+    });
+  }
 
   /// Asks for what is on screen once the map has stopped moving.
   void _lookSoon() {
@@ -78,6 +119,7 @@ class _MapViewState extends State<MapView> {
   void _moveTo(Camera camera) {
     setState(() => _camera = camera);
     _lookSoon();
+    _restrokeSoon();
   }
 
   void _scroll(PointerSignalEvent event) {
@@ -219,6 +261,7 @@ class _ReadoutState extends State<_Readout> {
               Text('raster ${stats.raster.toStringAsFixed(2)} ms'),
               Text('worst  ${stats.worst.toStringAsFixed(2)} ms'),
               Text('${loader.requests} requests, ${loader.waiting} waiting'),
+              Text('${loader.stale} tiles to restroke'),
               Text('${loader.store}'),
               if (loader.stopped != null)
                 Text(
@@ -236,4 +279,12 @@ class _ReadoutState extends State<_Readout> {
       ),
     );
   }
+}
+
+/// A tile's triangles, and the copy of them the engine holds.
+class _Uploaded {
+  TileMesh source;
+  final GpuTileMesh gpu;
+
+  _Uploaded(this.source, this.gpu);
 }

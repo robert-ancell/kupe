@@ -37,8 +37,10 @@ Future<void> main(List<String> arguments) async {
           maxLongitude: 174.778,
         );
 
-  const zoom = 14;
-  const pixelsPerTile = 2048.0;
+  // The same tiles the editor reads and draws: zoom 16, seen from zoom 17,
+  // where one is 512 pixels across.
+  const zoom = 16;
+  const pixelsPerTile = 512.0;
 
   final file = await OsmPbfFile.open(path);
   final readAt = Stopwatch()..start();
@@ -79,7 +81,7 @@ Future<void> main(List<String> arguments) async {
     print('  ${_pad(mapStyle[layer].id, 14)}${perLayer[layer]} vertices');
   }
 
-  // Line widths are baked in, so zooming past the threshold means building
+  // Line widths are baked in, so zooming past the tolerance means building
   // them again. Filled shapes cover the same ground at any zoom and are kept,
   // so only the lines are rebuilt. This is the cost that decides whether
   // zooming can stay smooth.
@@ -100,9 +102,11 @@ Future<void> main(List<String> arguments) async {
       runs.add(clock.elapsedMicroseconds);
     }
     runs.sort();
+    final median = runs[runs.length ~/ 2];
     print(
-      '  ${_pad('x$at', 8)}${_ms(runs[runs.length ~/ 2])}'
-      '${rebuilt.vertices} line vertices',
+      '  ${_pad('x$at', 8)}${_ms(median)}'
+      '${rebuilt.vertices} line vertices, '
+      '${_ms(median ~/ report.tiles.length)}a tile',
     );
   }
 }
