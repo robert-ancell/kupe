@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
 
+import 'src/data/map_loader.dart';
 import 'src/map/camera.dart';
 import 'src/map/map_view.dart';
 
@@ -41,7 +42,9 @@ class KupeApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: MapView(
-          api: OsmApi(fetch: httpFetch(contact: contact)),
+          api: OsmApi(
+            fetch: httpFetch(contact: contact, concurrency: maximumInFlight),
+          ),
           initialCamera: camera,
         ),
       ),

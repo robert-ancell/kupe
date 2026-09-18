@@ -24,9 +24,10 @@ flutter run -d linux --release -a -36.8485 -a 174.7633 -a 17
 ```
 
 Drag to pan, scroll or pinch to zoom. The map is read from OpenStreetMap as it
-is looked at, so nothing loads until it is zoomed in far enough for one screen
-to be a reasonable thing to ask for. The readout in the corner shows how long
-frames are taking and how much has been asked of the API.
+is looked at, in boxes sized so that a screenful costs about the same number of
+requests however far out it is. Somewhere crowded enough that a screen cannot
+be read within that budget says so and asks to be zoomed in. The readout in the
+corner shows how long frames are taking and how much has been asked of the API.
 
 ## Building
 

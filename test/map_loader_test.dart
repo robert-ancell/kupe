@@ -148,7 +148,7 @@ void main() {
   });
 
   test('splits a box the API says holds too much', () async {
-    final whole = const TileId(loadZoom, 0, 0).bounds;
+    final whole = const TileId(finestRequestZoom, 0, 0).bounds;
     final server = _Api(
       refuseWiderThan: (whole.maxLongitude - whole.minLongitude) * 0.75,
     );
@@ -178,7 +178,7 @@ void main() {
     expect(server.asked, lessThanOrEqualTo(maximumInFlight));
   });
 
-  test('keeps what it read as the view moves on', () async {
+  test('keeps what it read when the map zooms past where it reads', () async {
     final server = _Api();
     final loader = _loaderOn(server);
     loader.look(
@@ -189,11 +189,105 @@ void main() {
     final held = loader.store.length;
     expect(held, greaterThan(0));
     loader.look(
-      Camera.at(latitude: -36.85, longitude: 174.76, zoom: 15),
+      Camera.at(latitude: -36.85, longitude: 174.76, zoom: minimumLoadZoom - 1),
       _size,
     );
     await _drain();
     expect(loader.store.length, held);
+  });
+  group('how much is asked for', () {
+    test('asks at the finest zoom when the map is zoomed in', () {
+      for (final zoom in [16.0, 17.0, 20.0]) {
+        expect(
+          requestZoomFor(Camera.at(latitude: 0, longitude: 0, zoom: zoom)),
+          finestRequestZoom,
+        );
+      }
+    });
+
+    test('asks for coarser boxes as the map zooms out', () {
+      expect(
+        requestZoomFor(Camera.at(latitude: 0, longitude: 0, zoom: 15)),
+        15,
+      );
+      expect(
+        requestZoomFor(Camera.at(latitude: 0, longitude: 0, zoom: 14)),
+        14,
+      );
+    });
+
+    test('never asks for a box coarser than the coarsest', () {
+      expect(
+        requestZoomFor(Camera.at(latitude: 0, longitude: 0, zoom: 13)),
+        coarsestRequestZoom,
+      );
+      expect(
+        requestZoomFor(Camera.at(latitude: 0, longitude: 0, zoom: 2)),
+        coarsestRequestZoom,
+      );
+    });
+
+    test('needs about the same number of boxes at every zoom', () async {
+      // The whole point of following the camera: a screenful costs the same
+      // wherever it is pointed, instead of growing fourfold each zoom out.
+      for (final zoom in [13.0, 14.0, 15.0, 16.0, 17.0]) {
+        final server = _Api();
+        final loader = _loaderOn(server);
+        loader.look(
+          Camera.at(latitude: -36.85, longitude: 174.76, zoom: zoom),
+          _size,
+        );
+        await _drain();
+        expect(
+          server.asked.length,
+          lessThanOrEqualTo(maximumTilesPerView),
+          reason: 'at z$zoom',
+        );
+        expect(server.asked.length, greaterThan(1), reason: 'at z$zoom');
+      }
+    });
+
+    test('reads ground covered by a coarse box only once', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      // A coarse look, then a close one in the middle of it.
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 13),
+        _size,
+      );
+      await _drain();
+      final coarse = server.asked.length;
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      expect(server.asked.length, coarse);
+    });
+
+    test('does not fan out without limit over a crowded area', () async {
+      // An API that says every box holds too much, however small.
+      final server = _Api(refuseWiderThan: 0);
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 13),
+        _size,
+      );
+      await _drain();
+      expect(server.asked.length, lessThanOrEqualTo(maximumRequestsPerView));
+      expect(loader.crowded, isTrue);
+    });
+
+    test('says nothing is crowded when everything was read', () async {
+      final server = _Api();
+      final loader = _loaderOn(server);
+      loader.look(
+        Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17),
+        _size,
+      );
+      await _drain();
+      expect(loader.crowded, isFalse);
+    });
   });
 }
 

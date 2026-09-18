@@ -52,6 +52,9 @@ class TileId {
     maxLongitude: Mercator.longitude(worldX + size),
   );
 
+  /// The tile one zoom level out that holds this one.
+  TileId get parent => TileId(zoom - 1, x ~/ 2, y ~/ 2);
+
   /// The four tiles one zoom level in that together cover this one.
   ///
   /// What to ask for when the API will not answer for this tile because it

@@ -222,7 +222,10 @@ class _ReadoutState extends State<_Readout> {
               Text('build  ${stats.build.toStringAsFixed(2)} ms'),
               Text('raster ${stats.raster.toStringAsFixed(2)} ms'),
               Text('worst  ${stats.worst.toStringAsFixed(2)} ms'),
-              Text('${loader.requests} requests, ${loader.waiting} waiting'),
+              Text(
+                '${loader.requests} requests, ${loader.waiting} waiting, '
+                'z${requestZoomFor(widget.camera)} boxes',
+              ),
               Text('${loader.store}'),
               if (loader.stopped != null)
                 Text(
@@ -233,6 +236,11 @@ class _ReadoutState extends State<_Readout> {
                 Text(
                   'zoom in to z${minimumLoadZoom.toInt()} to load',
                   style: const TextStyle(color: Color(0xffffd080)),
+                )
+              else if (loader.crowded)
+                const Text(
+                  'too much here to show it all, zoom in',
+                  style: TextStyle(color: Color(0xffffd080)),
                 ),
             ],
           ),
