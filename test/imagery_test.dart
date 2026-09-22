@@ -246,10 +246,11 @@ void main() {
       );
       await _drain();
     }
-    expect(tracking.held, maximumImageryTiles);
+    expect(tracking.held, lessThanOrEqualTo(tracking.capacity));
+    expect(tracking.held, greaterThan(0));
     expect(
       pictures.where((p) => p.released).length,
-      pictures.length - maximumImageryTiles,
+      pictures.length - tracking.held,
     );
     tracking.dispose();
   });
@@ -439,6 +440,51 @@ void main() {
         layer.piecesFor(start, _size).length,
         start.tilesFor(_size, 17).length,
       );
+    });
+
+    test('draws every tile itself, however far the map is panned', () async {
+      // Panning past what can be held has to throw something away, and what
+      // it throws away must never be what is about to be drawn.
+      final server = _Server();
+      final layer = _layer(server);
+      var released = 0;
+      final tracking = ImageryLayer<_Picture>(
+        tiles: OsmImageryTiles(source: _source, fetch: server.fetch),
+        decode: (bytes) async => _Picture(String.fromCharCodes(bytes)),
+        release: (picture) {
+          picture.released = true;
+          released++;
+        },
+        onChanged: () {},
+      );
+      for (var step = 0; step < 30; step++) {
+        final camera = Camera.at(
+          latitude: -36.85,
+          longitude: 174.0 + step * 0.004,
+          zoom: 17,
+        );
+        tracking.look(camera, _size);
+        await _drain();
+        final pieces = tracking.piecesFor(camera, _size);
+        expect(
+          pieces.where((piece) => piece.from == piece.tile).length,
+          camera.tilesFor(_size, 17).length,
+          reason: 'every tile drawn as itself at step $step',
+        );
+      }
+      expect(released, greaterThan(0), reason: 'and something was let go of');
+      expect(tracking.held, lessThanOrEqualTo(tracking.capacity));
+      layer.dispose();
+      tracking.dispose();
+    });
+
+    test('holds more for a larger view', () async {
+      final small = _layer(_Server());
+      small.look(_at(17), const Size(320, 480));
+      final large = _layer(_Server());
+      large.look(_at(17), const Size(2560, 1440));
+      expect(large.capacity, greaterThan(small.capacity));
+      expect(small.capacity, minimumImageryTiles);
     });
   });
 }

@@ -8,12 +8,20 @@ import 'package:osm/osm.dart';
 import '../geometry/tile.dart';
 import '../map/camera.dart';
 
-/// How many decoded tiles are held.
+/// The fewest decoded tiles held, whatever the size of the view.
 ///
-/// A tile is 256 pixels square, a quarter of a megabyte once decoded, so this
-/// is about forty megabytes: enough for a large screen several times over,
-/// so panning back and forth does not fetch anything twice.
-const maximumImageryTiles = 160;
+/// A tile is 256 pixels square and a quarter of a megabyte once decoded, so
+/// this is about forty megabytes. A large window wants more than this to hold
+/// a screenful, so the real number is [ImageryLayer.capacity], which is this
+/// or several views' worth, whichever is larger.
+const minimumImageryTiles = 160;
+
+/// How many views' worth of tiles are held.
+///
+/// Enough that panning out and back does not fetch anything twice. Less than
+/// this and the tiles just beyond the edge, which nothing is drawing and so
+/// nothing keeps fresh, are thrown away as fast as they are fetched.
+const imageryViewsHeld = 3;
 
 /// How far out a tile is looked for to stand in for one that has not arrived.
 ///
@@ -78,6 +86,8 @@ class ImageryLayer<T extends Object> {
   // Oldest looked at first, which makes the first one the one to drop.
   final _images = <TileId, T>{};
   final _missing = <TileId>{};
+  var _wanted = <TileId>{};
+  var _drawn = <TileId>{};
   final _reading = <TileId, Completer<void>>{};
   var _queue = <TileId>[];
 
@@ -95,6 +105,16 @@ class ImageryLayer<T extends Object> {
 
   /// How many tiles are held.
   int get held => _images.length;
+
+  /// How many tiles may be held.
+  ///
+  /// Enough for several views of whatever size the view happens to be. A
+  /// fixed number is either wasteful on a phone or barely one screenful on a
+  /// desktop.
+  int get capacity {
+    final wanted = _wanted.length * imageryViewsHeld;
+    return wanted > minimumImageryTiles ? wanted : minimumImageryTiles;
+  }
 
   /// How many tiles are being fetched.
   int get reading => _reading.length;
@@ -120,6 +140,14 @@ class ImageryLayer<T extends Object> {
     for (final tile in _reading.keys.toList()) {
       if (!showing.contains(tile)) _abandon(tile);
     }
+
+    // Wanting a tile counts as using it, drawn or not. The ring beyond the
+    // edge is never drawn, so without this it is always the oldest thing
+    // held and is thrown away as fast as it is fetched.
+    _wanted = showing;
+    for (final tile in wanted) {
+      _touch(tile);
+    }
     _queue = [
       for (final tile in wanted)
         if (!_missing.contains(tile) &&
@@ -139,12 +167,19 @@ class ImageryLayer<T extends Object> {
   /// that has, and a tile with nothing held for it at all is left out.
   List<ImageryPiece<T>> piecesFor(Camera camera, Size size) {
     final pieces = <ImageryPiece<T>>[];
+    // What was handed out last is held on to until something else is: the
+    // caller may still be drawing it, and letting go of a picture being
+    // drawn is worse than holding one nobody wants.
+    _drawn = {};
     for (final tile in camera.tilesFor(size, zoomFor(camera))) {
       if (_coarserFor(pieces, tile)) continue;
       // Nothing coarser held either. Zooming out is the other way round: the
       // finer tiles are the ones in hand, so whatever pieces of this tile are
       // held are drawn in its place.
       _finerFor(pieces, tile, imageryFinerLevels);
+    }
+    for (final piece in pieces) {
+      _drawn.add(piece.from);
     }
     return pieces;
   }
@@ -187,6 +222,17 @@ class ImageryLayer<T extends Object> {
       release(image);
     }
     _images.clear();
+  }
+
+  /// Lets go of the tiles used longest ago, never one the view is asking
+  /// for: throwing away what is about to be drawn is how a map flickers.
+  void _evict() {
+    if (_images.length <= capacity) return;
+    for (final tile in _images.keys.toList()) {
+      if (_images.length <= capacity) return;
+      if (_wanted.contains(tile) || _drawn.contains(tile)) continue;
+      release(_images.remove(tile)!);
+    }
   }
 
   /// The image held for [tile], marking it as the one looked at last.
@@ -250,10 +296,7 @@ class ImageryLayer<T extends Object> {
     final replaced = _images.remove(tile);
     if (replaced != null) release(replaced);
     _images[tile] = image;
-    while (_images.length > maximumImageryTiles) {
-      final oldest = _images.keys.first;
-      release(_images.remove(oldest)!);
-    }
+    _evict();
     onChanged();
   }
 }
