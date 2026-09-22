@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'src/data/map_loader.dart';
 import 'src/data/tile_cache.dart';
 import 'src/imagery/imagery_cache.dart';
-import 'src/imagery/imagery_source.dart';
+import 'src/imagery/imagery_index.dart';
 import 'src/map/camera.dart';
 import 'src/map/map_view.dart';
 
@@ -36,12 +36,19 @@ Future<void> main(List<String> arguments) async {
 
   // Somewhere to keep what has been read. Without it the editor still works
   // and simply reads everything again each time.
+  final imageryFetch = httpFetch(contact: contact, concurrency: 6);
+
   TileCache? cache;
   ImageryCache? imagery;
+  var index = const OsmImageryIndex([fallbackImagery]);
   try {
     final directory = await getApplicationCacheDirectory();
     cache = await TileCache.open(Directory('${directory.path}/tiles'));
     imagery = await ImageryCache.open(Directory('${directory.path}/imagery'));
+    index = await ImageryIndex.read(
+      file: File('${directory.path}/editor-layer-index.geojson'),
+      fetch: imageryFetch,
+    );
   } on Exception {
     cache = null;
     imagery = null;
@@ -59,6 +66,8 @@ Future<void> main(List<String> arguments) async {
           ),
       cache: cache,
       imageryCache: imagery,
+      imageryIndex: index,
+      imageryFetch: imageryFetch,
     ),
   );
 }
@@ -74,12 +83,20 @@ class KupeApp extends StatelessWidget {
   /// Where imagery tiles are kept between runs.
   final ImageryCache? imageryCache;
 
+  /// The layers of imagery to choose from.
+  final OsmImageryIndex? imageryIndex;
+
+  /// How imagery tiles are fetched.
+  final OsmFetch? imageryFetch;
+
   /// Creates the app.
   const KupeApp({
     super.key,
     required this.camera,
     this.cache,
     this.imageryCache,
+    this.imageryIndex,
+    this.imageryFetch,
   });
 
   @override
@@ -94,9 +111,9 @@ class KupeApp extends StatelessWidget {
           ),
           initialCamera: camera,
           cache: cache,
-          imagery: linzAerial,
           imageryCache: imageryCache,
-          imageryFetch: httpFetch(contact: contact, concurrency: 6),
+          imageryIndex: imageryIndex,
+          imageryFetch: imageryFetch,
         ),
       ),
     );

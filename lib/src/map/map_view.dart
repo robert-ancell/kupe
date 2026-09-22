@@ -11,7 +11,6 @@ import '../data/map_loader.dart';
 import '../data/tile_cache.dart';
 import '../imagery/imagery_cache.dart';
 import '../imagery/imagery_layer.dart';
-import '../imagery/imagery_source.dart';
 import '../geometry/tile.dart';
 import '../render/map_painter.dart';
 import 'camera.dart';
@@ -47,8 +46,8 @@ class MapView extends StatefulWidget {
   /// Where boxes already read are kept between runs.
   final TileCache? cache;
 
-  /// The imagery to draw under the map, if any.
-  final ImagerySource? imagery;
+  /// The layers of imagery to choose from, if any.
+  final OsmImageryIndex? imageryIndex;
 
   /// Where imagery tiles are kept between runs.
   final ImageryCache? imageryCache;
@@ -66,7 +65,7 @@ class MapView extends StatefulWidget {
     required this.api,
     required this.initialCamera,
     this.cache,
-    this.imagery,
+    this.imageryIndex,
     this.imageryCache,
     this.imageryFetch,
   });
@@ -84,18 +83,8 @@ class _MapViewState extends State<MapView> {
       if (mounted) setState(() {});
     },
   );
-  late final ImageryLayer<ui.Image>? _imagery = widget.imagery == null
-      ? null
-      : ImageryLayer<ui.Image>(
-          source: widget.imagery!,
-          fetch: widget.imageryFetch ?? httpFetch(),
-          decode: _decode,
-          release: (image) => image.dispose(),
-          cache: widget.imageryCache,
-          onChanged: () {
-            if (mounted) setState(() {});
-          },
-        );
+  OsmImagery? _source;
+  ImageryLayer<ui.Image>? _imagery;
   final _uploaded = <TileId, GpuTileMesh>{};
   final _stats = FrameStats();
   Timer? _settle;
@@ -149,8 +138,45 @@ class _MapViewState extends State<MapView> {
     // Imagery is asked for as the map moves rather than once it settles,
     // since its servers are built for it and a blank background mid pan is
     // what makes a map feel slow.
+    _chooseImagery(camera);
     _imagery?.look(camera, _size);
     _lookSoon();
+  }
+
+  /// Picks the imagery to draw where the map is looking.
+  ///
+  /// The index says which layers have tiles over a place and which of them to
+  /// prefer, so the layer changes by itself on crossing into ground a better
+  /// one covers. The one already chosen is kept for as long as it covers the
+  /// middle of the view, so that panning around inside a country does not
+  /// swap the background about.
+  void _chooseImagery(Camera camera) {
+    final index = widget.imageryIndex;
+    if (index == null) return;
+    final held = _source;
+    if (held != null && held.covers(camera.latitude, camera.longitude)) return;
+
+    final wanted = index
+        .at(
+          camera.latitude,
+          camera.longitude,
+          category: OsmImageryCategory.photo,
+        )
+        .firstOrNull;
+    if (wanted == null || wanted.id == held?.id) return;
+
+    _imagery?.dispose();
+    _source = wanted;
+    _imagery = ImageryLayer<ui.Image>(
+      source: wanted,
+      fetch: widget.imageryFetch ?? httpFetch(),
+      decode: _decode,
+      release: (image) => image.dispose(),
+      cache: widget.imageryCache,
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+    );
   }
 
   void _scroll(PointerSignalEvent event) {
@@ -167,6 +193,7 @@ class _MapViewState extends State<MapView> {
         final size = constraints.biggest;
         if (size != _size) {
           _size = size;
+          _chooseImagery(_camera);
           _imagery?.look(_camera, size);
           _lookSoon();
         }
@@ -201,12 +228,8 @@ class _MapViewState extends State<MapView> {
                     ),
                   ),
                 ),
-                if (widget.imagery != null)
-                  Positioned(
-                    right: 8,
-                    bottom: 6,
-                    child: _Attribution(widget.imagery!.attribution),
-                  ),
+                if (_source?.attribution case final credit?)
+                  Positioned(right: 8, bottom: 6, child: _Attribution(credit)),
                 Positioned(
                   left: 12,
                   top: 12,

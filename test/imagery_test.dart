@@ -5,15 +5,15 @@ import 'dart:ui';
 
 import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/imagery/imagery_cache.dart';
+import 'package:kupe/src/imagery/imagery_index.dart';
 import 'package:kupe/src/imagery/imagery_layer.dart';
-import 'package:kupe/src/imagery/imagery_source.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
 
 const _size = Size(512, 512);
 
-const _source = ImagerySource(
+const _source = OsmImagery(
   id: 'test',
   name: 'Test',
   url: 'https://example.test/{zoom}/{x}/{y}.webp',
@@ -29,9 +29,11 @@ class _Picture {
   _Picture(this.from);
 }
 
+/// Lets everything queued run, including reads from the disk, which take
+/// real time and take longer again when the whole suite is running at once.
 Future<void> _drain() async {
-  for (var i = 0; i < 40; i++) {
-    await Future<void>.delayed(Duration.zero);
+  for (var i = 0; i < 60; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 1));
   }
 }
 
@@ -102,20 +104,13 @@ Camera _at(double zoom) =>
     Camera.at(latitude: -36.85, longitude: 174.76, zoom: zoom);
 
 void main() {
-  test('fills a tile into the address', () {
-    expect(
-      _source.tileUri(const TileId(17, 1, 2)).toString(),
-      'https://example.test/17/1/2.webp',
-    );
-  });
-
-  test('carries the LINZ entry iD uses', () {
-    final uri = linzAerial.tileUri(const TileId(17, 129167, 79983));
+  test('falls back to the LINZ entry from the index', () {
+    final uri = Uri.parse(fallbackImagery.tileUrl(17, 129167, 79983));
     expect(uri.host, 'basemaps.linz.govt.nz');
     expect(uri.path, '/v1/tiles/aerial/WebMercatorQuad/17/129167/79983.webp');
     expect(uri.queryParameters['api'], isNotEmpty);
-    expect(linzAerial.maximumZoom, 21);
-    expect(linzAerial.attribution, contains('LINZ'));
+    expect(fallbackImagery.maximumZoom, 21);
+    expect(fallbackImagery.attribution, contains('LINZ'));
   });
 
   test('draws tiles of the nearest zoom', () {

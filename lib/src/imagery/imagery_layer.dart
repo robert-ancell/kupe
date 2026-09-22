@@ -8,7 +8,6 @@ import 'package:osm/osm.dart';
 import '../geometry/tile.dart';
 import '../map/camera.dart';
 import 'imagery_cache.dart';
-import 'imagery_source.dart';
 
 /// How many decoded tiles are held.
 ///
@@ -49,7 +48,7 @@ class ImageryPiece<T extends Object> {
 /// at once.
 class ImageryLayer<T extends Object> {
   /// Where the tiles come from.
-  final ImagerySource source;
+  final OsmImagery source;
 
   /// How they are fetched.
   final OsmFetch fetch;
@@ -98,7 +97,7 @@ class ImageryLayer<T extends Object> {
   /// tenths or more than about one and a half times its own size. Closer in
   /// than the source goes, its closest tiles are stretched.
   int zoomFor(Camera camera) =>
-      camera.zoom.round().clamp(0, source.maximumZoom);
+      camera.zoom.round().clamp(source.minimumZoom, source.maximumZoom);
 
   /// Asks for the tiles [camera] can see, giving up on any it no longer can.
   void look(Camera camera, Size size) {
@@ -206,7 +205,7 @@ class ImageryLayer<T extends Object> {
       }
 
       final bytes = await fetch(
-        source.tileUri(tile),
+        Uri.parse(source.tileUrl(tile.zoom, tile.x, tile.y)),
         abandon: abandon,
         // Already on its way when it was given up on. It is a few kilobytes
         // and the view may well come back to it, so it is kept.
