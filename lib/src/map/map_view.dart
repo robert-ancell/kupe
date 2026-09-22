@@ -148,8 +148,6 @@ class _MapViewState extends State<MapView> {
   void _lookSoon() {
     _settle?.cancel();
     _check?.cancel();
-    _loader.dispose();
-    _imagery?.dispose();
     _settle = Timer(settleDelay, () {
       if (mounted) _loader.look(_camera, _size);
     });
