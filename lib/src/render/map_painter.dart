@@ -1,9 +1,11 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
+import 'package:osm/osm.dart';
 
 import '../geometry/tile.dart';
 import '../imagery/imagery_layer.dart';
+import '../map/pick.dart';
 import '../map/camera.dart';
 import '../style/style.dart';
 import 'tile_mesh.dart';
@@ -57,6 +59,9 @@ class MapPainter extends CustomPainter {
   /// The background imagery to draw under the map, if any.
   final List<ImageryPiece<ui.Image>> imagery;
 
+  /// The line the pointer is over, drawn over everything else.
+  final PickedWay? highlight;
+
   /// Called with how many draw calls the frame took.
   final void Function(int calls)? onDrawn;
 
@@ -65,6 +70,7 @@ class MapPainter extends CustomPainter {
     required this.camera,
     required this.tiles,
     this.imagery = const [],
+    this.highlight,
     this.onDrawn,
   });
 
@@ -87,6 +93,15 @@ class MapPainter extends CustomPainter {
   ];
 
   static final _imageryPaint = Paint()..filterQuality = FilterQuality.low;
+
+  /// What the pointer is over is drawn in red over the top, wider than the
+  /// thing itself so that it reads as an outline around it rather than as a
+  /// road that has changed colour.
+  static final _highlightPaint = Paint()
+    ..color = const Color(0xffe03030)
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -115,7 +130,37 @@ class MapPainter extends CustomPainter {
         }
       }
     }
+    if (highlight != null) {
+      _drawHighlight(canvas, size, highlight!);
+      calls += 1;
+    }
     onDrawn?.call(calls);
+  }
+
+  /// Draws the line the pointer is over.
+  ///
+  /// One path a frame, in screen coordinates, because there is only ever one
+  /// of them and it moves with the pointer: building it is cheaper than
+  /// holding geometry that is out of date as soon as the pointer moves.
+  void _drawHighlight(Canvas canvas, Size size, PickedWay picked) {
+    final points = picked.points;
+    if (points.length < 4) return;
+
+    final path = Path();
+    for (var i = 0; i + 1 < points.length; i += 2) {
+      final at = camera.toScreen(points[i], points[i + 1], size);
+      if (i == 0) {
+        path.moveTo(at.dx, at.dy);
+      } else {
+        path.lineTo(at.dx, at.dy);
+      }
+    }
+
+    // As wide as the thing is drawn, and never thinner than something that
+    // can be seen.
+    final metres = Mercator.metresPerUnit(camera.latitude);
+    final wide = picked.width / metres * camera.scale + 4;
+    canvas.drawPath(path, _highlightPaint..strokeWidth = wide < 6 ? 6 : wide);
   }
 
   /// Draws one tile of imagery, or the matching part of a coarser one that is
@@ -142,6 +187,7 @@ class MapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(MapPainter old) =>
+      old.highlight?.way.id != highlight?.way.id ||
       !identical(old.imagery, imagery) ||
       old.camera != camera ||
       !identical(old.tiles, tiles);

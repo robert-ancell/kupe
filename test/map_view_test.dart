@@ -38,6 +38,40 @@ Future<Uint8List?> _nothing(
   void Function(Uint8List body)? onLate,
 }) async => null;
 
+/// Where the road the tests point at runs.
+const _roadLatitude = -36.85;
+
+var _served = 0;
+
+/// A box of map data holding one road along [_roadLatitude], so that it runs
+/// through the middle of a view looking there.
+Future<Uint8List?> _oneRoad(
+  Uri uri, {
+  Future<void>? abandon,
+  void Function(Uint8List body)? onLate,
+}) async {
+  final box = uri.queryParameters['bbox']!
+      .split(',')
+      .map(double.parse)
+      .toList();
+  final [west, south, east, north] = box;
+  if (_roadLatitude < south || _roadLatitude > north) {
+    return Uint8List.fromList(utf8.encode('<osm version="0.6"/>'));
+  }
+  final id = (_served += 10);
+  return Uint8List.fromList(
+    utf8.encode(
+      '<osm version="0.6">'
+      '<node id="$id" lat="$_roadLatitude" lon="$west" version="1"/>'
+      '<node id="${id + 1}" lat="$_roadLatitude" lon="$east" version="1"/>'
+      '<way id="${id + 2}" version="1">'
+      '<nd ref="$id"/><nd ref="${id + 1}"/>'
+      '<tag k="highway" v="residential"/></way>'
+      '</osm>',
+    ),
+  );
+}
+
 MapPainter _painterIn(WidgetTester tester) =>
     tester
             .widgetList<CustomPaint>(find.byType(CustomPaint))
@@ -49,10 +83,13 @@ MapPainter _painterIn(WidgetTester tester) =>
 /// test runs on otherwise leaves hanging.
 Future<void> _settle(WidgetTester tester) async {
   for (var i = 0; i < 12; i++) {
+    // Real time, so that fetching and decoding get a chance.
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 20)),
     );
-    await tester.pump();
+    // And the clock the widget's own timers run on, which only moves when
+    // the test says so.
+    await tester.pump(const Duration(milliseconds: 100));
   }
 }
 
@@ -181,6 +218,90 @@ void main() {
       );
       await tester.pump();
       expect(find.text('Zoom in to edit'), findsOneWidget);
+    });
+  });
+
+  group('pointing at a line', () {
+    Future<void> openOver(WidgetTester tester, {double zoom = 18}) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: _oneRoad),
+              initialCamera: Camera.at(
+                latitude: -36.85,
+                longitude: 174.76,
+                zoom: zoom,
+              ),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+    }
+
+    Future<void> point(WidgetTester tester, Offset at) async {
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(at);
+      await tester.pump();
+    }
+
+    testWidgets('highlights the line under the pointer', (tester) async {
+      await openOver(tester);
+      expect(_painterIn(tester).highlight, isNull);
+
+      await point(tester, const Offset(500, 400));
+      expect(_painterIn(tester).highlight, isNotNull);
+      expect(_painterIn(tester).highlight!.way.tags['highway'], 'residential');
+    });
+
+    testWidgets('highlights nothing away from the line', (tester) async {
+      await openOver(tester);
+      await point(tester, const Offset(500, 700));
+      expect(_painterIn(tester).highlight, isNull);
+    });
+
+    testWidgets('highlights nothing when too far out to edit', (tester) async {
+      // The data is there, read at a closer zoom, but pointing at it does
+      // nothing while the map says there is no editing to be done.
+      await openOver(tester);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).highlight, isNotNull);
+
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(
+          position: Offset(500, 400),
+          scrollDelta: Offset(0, 800),
+        ),
+      );
+      await tester.pump();
+      await mouse.moveTo(const Offset(500, 401));
+      await tester.pump();
+
+      expect(find.text('Zoom in to edit'), findsOneWidget);
+      expect(_painterIn(tester).highlight, isNull);
+    });
+
+    testWidgets('lets go of the line when the pointer leaves', (tester) async {
+      await openOver(tester);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).highlight, isNotNull);
+
+      await mouse.moveTo(const Offset(-50, -50));
+      await tester.pump();
+      expect(_painterIn(tester).highlight, isNull);
     });
   });
 }

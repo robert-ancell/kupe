@@ -14,6 +14,7 @@ import '../geometry/tile.dart';
 import '../render/map_painter.dart';
 import 'camera.dart';
 import 'frame_stats.dart';
+import 'pick.dart';
 
 /// How long the map waits after being moved before asking for what it can
 /// now see.
@@ -119,6 +120,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   )..addListener(_zoomStep);
   double? _easeFrom;
   double? _easeTo;
+  PickedWay? _hovered;
 
   @override
   void initState() {
@@ -260,6 +262,22 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         '${_imagery?.reading ?? 0} reading';
   }
 
+  /// Works out what the pointer is over.
+  ///
+  /// Only while the map is close enough to edit: further out the lines are
+  /// too fine to point at, and there is nothing to be done with one anyway.
+  void _hover(Offset at) {
+    final found = _tooFarToEdit
+        ? null
+        : wayAt(at, _camera, _size, _loader.store, zoom: loadZoom);
+    if (found?.way.id == _hovered?.way.id) {
+      // The same line, but its shape moves with the camera.
+      _hovered = found;
+      return;
+    }
+    setState(() => _hovered = found);
+  }
+
   void _scroll(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
     _moveTo(
@@ -280,53 +298,66 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         }
         return Listener(
           onPointerSignal: _scroll,
-          child: GestureDetector(
-            onScaleStart: (_) => _zoomFrom = _camera.zoom,
-            onScaleUpdate: (details) {
-              var camera = _camera.panned(details.focalPointDelta);
-              if (details.scale != 1) {
-                final target = _zoomFrom! + math.log(details.scale) / math.ln2;
-                camera = camera.zoomed(
-                  target - camera.zoom,
-                  details.localFocalPoint,
-                  size,
-                );
-              }
-              _moveTo(camera);
+          child: MouseRegion(
+            onHover: (event) => _hover(event.localPosition),
+            onExit: (_) {
+              if (_hovered != null) setState(() => _hovered = null);
             },
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: RepaintBoundary(
-                    child: CustomPaint(
-                      painter: MapPainter(
-                        camera: _camera,
-                        tiles: _meshes,
-                        imagery: _imagery?.piecesFor(_camera, size) ?? const [],
-                        onDrawn: (calls) => _drawCalls = calls,
+            child: GestureDetector(
+              onScaleStart: (_) => _zoomFrom = _camera.zoom,
+              onScaleUpdate: (details) {
+                var camera = _camera.panned(details.focalPointDelta);
+                if (details.scale != 1) {
+                  final target =
+                      _zoomFrom! + math.log(details.scale) / math.ln2;
+                  camera = camera.zoomed(
+                    target - camera.zoom,
+                    details.localFocalPoint,
+                    size,
+                  );
+                }
+                _moveTo(camera);
+              },
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        painter: MapPainter(
+                          camera: _camera,
+                          tiles: _meshes,
+                          imagery:
+                              _imagery?.piecesFor(_camera, size) ?? const [],
+                          highlight: _hovered,
+                          onDrawn: (calls) => _drawCalls = calls,
+                        ),
+                        size: Size.infinite,
                       ),
-                      size: Size.infinite,
                     ),
                   ),
-                ),
-                if (_tooFarToEdit)
-                  Positioned.fill(
-                    child: Center(child: _ZoomToEdit(onPressed: _zoomToEdit)),
+                  if (_tooFarToEdit)
+                    Positioned.fill(
+                      child: Center(child: _ZoomToEdit(onPressed: _zoomToEdit)),
+                    ),
+                  if (_source?.attribution case final credit?)
+                    Positioned(
+                      right: 8,
+                      bottom: 6,
+                      child: _Attribution(credit),
+                    ),
+                  Positioned(
+                    left: 12,
+                    top: 12,
+                    child: _Readout(
+                      camera: _camera,
+                      stats: _stats,
+                      loader: _loader,
+                      drawCalls: _drawCalls,
+                      imagery: _imageryState,
+                    ),
                   ),
-                if (_source?.attribution case final credit?)
-                  Positioned(right: 8, bottom: 6, child: _Attribution(credit)),
-                Positioned(
-                  left: 12,
-                  top: 12,
-                  child: _Readout(
-                    camera: _camera,
-                    stats: _stats,
-                    loader: _loader,
-                    drawCalls: _drawCalls,
-                    imagery: _imageryState,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

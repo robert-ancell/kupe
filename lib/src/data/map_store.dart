@@ -15,6 +15,7 @@ class MapStore {
   final _ways = <int, OsmWay>{};
   final _relations = <int, OsmRelation>{};
   final _drawn = <(OsmElementType, int), TileId>{};
+  final _byTile = <TileId, List<OsmElement>>{};
 
   /// Every node held, by id.
   Map<int, OsmNode> get nodes => _nodes;
@@ -55,16 +56,24 @@ class MapStore {
       final key = (element.type, element.id);
       if (_drawn.containsKey(key)) continue;
       _drawn[key] = tile;
+      (_byTile[tile] ??= <OsmElement>[]).add(element);
       fresh.add(element);
     }
     return fresh;
   }
 
+  /// What [tile] drew, which is what to look through to say what is under a
+  /// point on it.
+  List<OsmElement> drawnIn(TileId tile) => _byTile[tile] ?? const [];
+
   /// Forgets everything [tile] drew, so that reading it again starts clean.
   ///
-  /// Elements another box drew are left alone, even where this one also held
-  /// them: they are that box's to take back.
+  /// An answer says what is there and never what has gone, so an element
+  /// deleted since would otherwise stay on the map for ever. Elements another
+  /// box drew are left alone, even where this one also held them: they are
+  /// that box's to take back.
   void release(TileId tile) {
+    _byTile.remove(tile);
     final letting = <(OsmElementType, int)>[];
     for (final entry in _drawn.entries) {
       if (entry.value == tile) letting.add(entry.key);
