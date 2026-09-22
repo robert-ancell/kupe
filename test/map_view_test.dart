@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kupe/src/map/camera.dart';
@@ -55,7 +56,7 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
-Future<void> _open(WidgetTester tester) async {
+Future<void> _open(WidgetTester tester, {double zoom = 17}) async {
   await tester.binding.setSurfaceSize(const Size(1000, 800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
@@ -66,7 +67,7 @@ Future<void> _open(WidgetTester tester) async {
           initialCamera: Camera.at(
             latitude: -36.85,
             longitude: 174.76,
-            zoom: 17,
+            zoom: zoom,
           ),
           imageryIndex: ValueNotifier(const OsmImageryIndex([_linz])),
           imageryFetch: _imagery,
@@ -76,6 +77,12 @@ Future<void> _open(WidgetTester tester) async {
   );
   await _settle(tester);
 }
+
+/// What the map says it is showing, from the readout.
+String _cameraLine(WidgetTester tester) => tester
+    .widgetList<Text>(find.byType(Text))
+    .map((text) => text.data ?? '')
+    .firstWhere((line) => line.startsWith('Camera('));
 
 void main() {
   testWidgets('draws the imagery it has fetched', (tester) async {
@@ -126,5 +133,54 @@ void main() {
     );
     await _settle(tester);
     expect(_painterIn(tester).imagery, isEmpty);
+  });
+
+  group('too far out to edit', () {
+    testWidgets('says so when the map is zoomed out', (tester) async {
+      await _open(tester, zoom: minimumEditZoom - 1);
+      expect(find.text('Zoom in to edit'), findsOneWidget);
+    });
+
+    testWidgets('says nothing when the map is zoomed in', (tester) async {
+      await _open(tester, zoom: minimumEditZoom);
+      expect(find.text('Zoom in to edit'), findsNothing);
+    });
+
+    testWidgets('zooms in far enough to edit when pressed', (tester) async {
+      await _open(tester, zoom: minimumEditZoom - 3);
+      expect(_cameraLine(tester), contains('z13.00'));
+
+      await tester.tap(find.text('Zoom in to edit'));
+      await tester.pumpAndSettle();
+
+      expect(_cameraLine(tester), contains('z16.00'));
+      expect(find.text('Zoom in to edit'), findsNothing);
+    });
+
+    testWidgets('stays where it was looking while it zooms', (tester) async {
+      await _open(tester, zoom: minimumEditZoom - 2);
+      final before = _cameraLine(tester).split(',').take(2).join(',');
+
+      await tester.tap(find.text('Zoom in to edit'));
+      await tester.pumpAndSettle();
+
+      // The same place on the ground, seen closer.
+      expect(_cameraLine(tester), startsWith(before));
+    });
+
+    testWidgets('comes back when the map is zoomed out again', (tester) async {
+      await _open(tester, zoom: minimumEditZoom + 1);
+      expect(find.text('Zoom in to edit'), findsNothing);
+
+      // Scrolling the wheel away zooms out, as it does on a desktop.
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(
+          position: Offset(500, 400),
+          scrollDelta: Offset(0, 600),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Zoom in to edit'), findsOneWidget);
+    });
   });
 }

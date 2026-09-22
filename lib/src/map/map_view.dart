@@ -30,6 +30,18 @@ const settleDelay = Duration(milliseconds: 250);
 /// cancels it.
 const checkDelay = Duration(seconds: 2);
 
+/// How far in the map has to be before anything can be edited.
+///
+/// The same as the zoom it starts reading at, and for the same reason: there
+/// is nothing to edit until the data is there. iD draws the line in the same
+/// place.
+const minimumEditZoom = minimumLoadZoom;
+
+/// How long zooming in to edit takes.
+///
+/// Long enough to see where the map went, short enough not to wait for it.
+const zoomToEditDuration = Duration(milliseconds: 250);
+
 /// The map, read from OpenStreetMap as it is looked at.
 ///
 /// Panning and zooming only move the camera. Geometry already built is not
@@ -81,7 +93,7 @@ class MapView extends StatefulWidget {
   State<MapView> createState() => _MapViewState();
 }
 
-class _MapViewState extends State<MapView> {
+class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   late Camera _camera = widget.initialCamera;
   late final MapLoader _loader = MapLoader(
     api: widget.api,
@@ -101,10 +113,41 @@ class _MapViewState extends State<MapView> {
   var _drawCalls = 0;
   double? _zoomFrom;
 
+  late final AnimationController _zoomer = AnimationController(
+    vsync: this,
+    duration: zoomToEditDuration,
+  )..addListener(_zoomStep);
+  double? _easeFrom;
+  double? _easeTo;
+
   @override
   void initState() {
     super.initState();
     widget.imageryIndex?.addListener(_indexChanged);
+  }
+
+  /// Whether the map is too far out to edit.
+  bool get _tooFarToEdit => _camera.zoom < minimumEditZoom;
+
+  /// Zooms in to where editing starts, about the middle of the view.
+  void _zoomToEdit() {
+    if (!_tooFarToEdit) return;
+    _easeFrom = _camera.zoom;
+    _easeTo = minimumEditZoom;
+    _zoomer.forward(from: 0);
+  }
+
+  void _zoomStep() {
+    final from = _easeFrom;
+    final to = _easeTo;
+    if (from == null || to == null) return;
+    _moveTo(
+      Camera(
+        x: _camera.x,
+        y: _camera.y,
+        zoom: from + (to - from) * Curves.easeOut.transform(_zoomer.value),
+      ),
+    );
   }
 
   /// Takes the imagery again once the full index has arrived, in case it
@@ -119,6 +162,7 @@ class _MapViewState extends State<MapView> {
 
   @override
   void dispose() {
+    _zoomer.dispose();
     widget.imageryIndex?.removeListener(_indexChanged);
     _settle?.cancel();
     _check?.cancel();
@@ -265,6 +309,10 @@ class _MapViewState extends State<MapView> {
                     ),
                   ),
                 ),
+                if (_tooFarToEdit)
+                  Positioned.fill(
+                    child: Center(child: _ZoomToEdit(onPressed: _zoomToEdit)),
+                  ),
                 if (_source?.attribution case final credit?)
                   Positioned(right: 8, bottom: 6, child: _Attribution(credit)),
                 Positioned(
@@ -335,7 +383,6 @@ class _ReadoutState extends State<_Readout> {
   Widget build(BuildContext context) {
     final stats = widget.stats;
     final loader = widget.loader;
-    final tooFar = widget.camera.zoom < minimumLoadZoom;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xcc000000),
@@ -379,11 +426,6 @@ class _ReadoutState extends State<_Readout> {
                   'paused: ${loader.stopped}, trying again shortly',
                   style: const TextStyle(color: Color(0xffff8080)),
                 )
-              else if (tooFar)
-                Text(
-                  'zoom in to z${minimumLoadZoom.toInt()} to load',
-                  style: const TextStyle(color: Color(0xffffd080)),
-                )
               else if (loader.crowded)
                 const Text(
                   'too much here to show it all, zoom in',
@@ -426,6 +468,43 @@ class _Attribution extends StatelessWidget {
         child: Text(
           text,
           style: const TextStyle(fontSize: 11, color: Color(0xff333333)),
+        ),
+      ),
+    );
+  }
+}
+
+/// Says that the map is too far out to edit, and zooms in when pressed.
+///
+/// What iD shows, down to the words: below the zoom where data is read there
+/// is nothing to edit, and the way out of that is the same gesture every
+/// time, so it is worth a button rather than an instruction.
+class _ZoomToEdit extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _ZoomToEdit({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xee3b4147),
+      borderRadius: BorderRadius.circular(4),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(4),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.add, size: 18, color: Color(0xffffffff)),
+              SizedBox(width: 8),
+              Text(
+                'Zoom in to edit',
+                style: TextStyle(fontSize: 14, color: Color(0xffffffff)),
+              ),
+            ],
+          ),
         ),
       ),
     );
