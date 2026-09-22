@@ -253,8 +253,8 @@ class _ReadoutState extends State<_Readout> {
               Text('raster ${stats.raster.toStringAsFixed(2)} ms'),
               Text('worst  ${stats.worst.toStringAsFixed(2)} ms'),
               Text(
-                '${loader.requests} requests, ${loader.waiting} waiting, '
-                'z${requestZoomFor(widget.camera)} boxes',
+                '${loader.requests} requests, ${loader.reading} reading, '
+                '${loader.waiting - loader.reading} waiting',
               ),
               Text('${loader.store}'),
               if (loader.cache != null)

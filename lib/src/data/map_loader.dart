@@ -11,35 +11,21 @@ import '../render/tile_mesh.dart';
 import 'map_store.dart';
 import 'tile_cache.dart';
 
-/// How far out the map still reads data.
+/// How far in the map has to be before anything is asked for.
 ///
-/// Further out than this a view covers so much ground that reading it would
-/// be a bulk download whatever it is cut into. Other editors stop sooner:
-/// iD reads nothing below zoom 16 and Vespucci below 17. Kupe goes further
-/// out because what matters is how much comes back, not how far out the
-/// camera is, and how much comes back is guarded directly below.
-const minimumLoadZoom = 13.0;
+/// The same threshold iD uses. Further out a view covers enough ground that
+/// reading it is a bulk download rather than editing, and the API is run for
+/// editing.
+const minimumLoadZoom = 16.0;
 
-/// The finest zoom a box is asked for at.
+/// The zoom boxes are asked for at.
 ///
-/// A tile this size is a few hundred metres across, which comes back quickly
-/// and stays well inside what the API will answer with at once. The same
-/// zoom iD asks at.
-const finestRequestZoom = 16;
-
-/// The coarsest zoom a box is asked for at.
-///
-/// Held above [minimumLoadZoom] would mean thousands of tiny requests to
-/// cover a zoomed out view. Asking at the zoom being looked at instead keeps
-/// the count of requests roughly the same however far out the map is, and
-/// leaves how much ground each one covers to the guard below.
-const coarsestRequestZoom = 13;
+/// A box this size is a few hundred metres across, comes back quickly and
+/// stays well inside what the API will answer with at once. The same zoom iD
+/// asks at, whatever the camera is doing.
+const loadZoom = 16;
 
 /// The most tiles that will be asked for to fill one view.
-///
-/// This is the real limit. A view needs about the same number of tiles at
-/// every zoom, because the tiles grow as the map zooms out, so this bounds
-/// what one screenful costs wherever it is pointed.
 ///
 /// Measured against the live API over Auckland and Wellington: the first
 /// half dozen boxes come back in two to five seconds and everything after
@@ -51,12 +37,10 @@ const maximumTilesPerView = 16;
 
 /// The most requests one view may cost in total, splitting included.
 ///
-/// A coarse tile over a city holds far more than the API will answer with, so
-/// it is asked for in quarters, and those may be too much in turn. Without a
-/// ceiling a single zoomed out look at Tokyo would fan out into hundreds of
-/// requests. Reaching this means there is too much here to show at this zoom,
-/// which the map says rather than quietly reading half of it.
-const maximumRequestsPerView = 96;
+/// A box over somewhere very dense can hold more than the API will answer
+/// with, so it is asked for in quarters. Reaching this means there is too
+/// much here to show, which the map says rather than quietly reading half.
+const maximumRequestsPerView = 32;
 
 /// How many requests this map has outstanding at once.
 ///
@@ -76,17 +60,7 @@ const maximumInFlight = 4;
 const retryDelay = Duration(seconds: 8);
 
 /// How far a tile will be split when the API says it holds too much.
-///
-/// Enough for the coarsest request to reach the finest: a zoom 13 box that is
-/// too much can come down to zoom 16 a quarter at a time.
-const maximumSplits = finestRequestZoom - coarsestRequestZoom;
-
-/// The zoom boxes are asked for at when looking through [camera].
-///
-/// Tracking the camera keeps the number of tiles a view needs about the same
-/// at every zoom, rather than growing fourfold each time the map zooms out.
-int requestZoomFor(Camera camera) =>
-    camera.zoom.round().clamp(coarsestRequestZoom, finestRequestZoom);
+const maximumSplits = 2;
 
 /// Reads the visible map from OpenStreetMap, a tile at a time.
 ///
@@ -180,7 +154,7 @@ class MapLoader {
     final centre = Offset(size.width / 2, size.height / 2);
     final wanted =
         [
-          for (final tile in camera.tilesFor(size, requestZoomFor(camera)))
+          for (final tile in camera.tilesFor(size, loadZoom))
             if (!_covered(tile)) tile,
         ]..sort(
           (a, b) => _distance(
@@ -307,20 +281,8 @@ class MapLoader {
         tile.worldY + tile.size > view.top;
   }
 
-  /// Whether a tile's ground has already been read, by itself or by a coarser
-  /// box that swallowed it.
-  ///
-  /// Zooming in after a coarse look must not read the same ground again in
-  /// smaller pieces, so the boxes already asked for are checked all the way
-  /// out, not just at the zoom being asked at now.
-  bool _covered(TileId tile) {
-    var at = tile;
-    while (true) {
-      if (_asked.contains(at)) return true;
-      if (at.zoom <= coarsestRequestZoom) return false;
-      at = at.parent;
-    }
-  }
+  /// Whether a tile's ground has already been asked for.
+  bool _covered(TileId tile) => _asked.contains(tile);
 
   /// How far a tile's middle is from the middle of the view, so that what is
   /// being looked at arrives before what is at the edge.
