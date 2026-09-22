@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
@@ -48,8 +48,12 @@ class MapView extends StatefulWidget {
   /// Where to remember the place the map was left.
   final File? place;
 
-  /// The layers of imagery to choose from, if any.
-  final OsmImageryIndex? imageryIndex;
+  /// The layers of imagery to choose from.
+  ///
+  /// A listenable rather than a list, because the index is a megabyte off the
+  /// network: the map opens on whatever was already known and takes the full
+  /// list when it arrives.
+  final ValueListenable<OsmImageryIndex>? imageryIndex;
 
   /// Where imagery tiles are kept between runs.
   final OsmImageryCache? imageryCache;
@@ -98,7 +102,24 @@ class _MapViewState extends State<MapView> {
   double? _zoomFrom;
 
   @override
+  void initState() {
+    super.initState();
+    widget.imageryIndex?.addListener(_indexChanged);
+  }
+
+  /// Takes the imagery again once the full index has arrived, in case it
+  /// knows of something better here than what the map opened with.
+  void _indexChanged() {
+    if (!mounted) return;
+    _source = null;
+    _chooseImagery(_camera);
+    _imagery?.look(_camera, _size);
+    setState(() {});
+  }
+
+  @override
   void dispose() {
+    widget.imageryIndex?.removeListener(_indexChanged);
     _settle?.cancel();
     _check?.cancel();
     _loader.dispose();
@@ -155,7 +176,7 @@ class _MapViewState extends State<MapView> {
   /// middle of the view, so that panning around inside a country does not
   /// swap the background about.
   void _chooseImagery(Camera camera) {
-    final index = widget.imageryIndex;
+    final index = widget.imageryIndex?.value;
     if (index == null) return;
     final held = _source;
     if (held != null && held.covers(camera.latitude, camera.longitude)) return;
@@ -183,6 +204,18 @@ class _MapViewState extends State<MapView> {
         if (mounted) setState(() {});
       },
     );
+  }
+
+  /// What the imagery is doing, for the readout.
+  String get _imageryState {
+    final source = _source;
+    if (source == null) {
+      return widget.imageryIndex == null
+          ? 'no imagery index'
+          : 'no imagery covers here';
+    }
+    return '${source.name}: ${_imagery?.held ?? 0} held, '
+        '${_imagery?.reading ?? 0} reading';
   }
 
   void _scroll(PointerSignalEvent event) {
@@ -244,6 +277,7 @@ class _MapViewState extends State<MapView> {
                     stats: _stats,
                     loader: _loader,
                     drawCalls: _drawCalls,
+                    imagery: _imageryState,
                   ),
                 ),
               ],
@@ -265,12 +299,14 @@ class _Readout extends StatefulWidget {
   final FrameStats stats;
   final MapLoader loader;
   final int drawCalls;
+  final String imagery;
 
   const _Readout({
     required this.camera,
     required this.stats,
     required this.loader,
     required this.drawCalls,
+    required this.imagery,
   });
 
   @override
@@ -333,6 +369,7 @@ class _ReadoutState extends State<_Readout> {
                 '${loader.waiting - loader.reading} waiting',
               ),
               Text('${loader.store}'),
+              Text(widget.imagery),
               if (loader.cache != null)
                 Text(
                   '${loader.cache!.tiles.length} boxes held, '

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
 import 'package:path_provider/path_provider.dart';
@@ -56,7 +58,7 @@ Future<void> main(List<String> arguments) async {
   OsmTileCache? cache;
   OsmImageryCache? imagery;
   File? place;
-  var index = const OsmImageryIndex([fallbackImagery]);
+  File? indexFile;
   try {
     final directory = await getApplicationCacheDirectory();
     cache = await OsmTileCache.open(Directory('${directory.path}/tiles'));
@@ -64,15 +66,25 @@ Future<void> main(List<String> arguments) async {
       Directory('${directory.path}/imagery'),
     );
     place = File('${directory.path}/last-place.json');
-    index = await OsmImageryIndexFile.read(
-      file: File('${directory.path}/editor-layer-index.geojson'),
-      fetch: imageryFetch,
-      fallback: const [fallbackImagery],
-    );
+    indexFile = File('${directory.path}/editor-layer-index.geojson');
   } on Exception {
     cache = null;
     imagery = null;
     place = null;
+  }
+
+  // The map opens on the one layer built in and takes the full list when it
+  // arrives. Reading the index is a megabyte off the network, which is no
+  // reason for the editor to show nothing at all until it is done.
+  final index = ValueNotifier(const OsmImageryIndex([fallbackImagery]));
+  if (indexFile != null) {
+    unawaited(
+      OsmImageryIndexFile.read(
+        file: indexFile,
+        fetch: imageryFetch,
+        fallback: const [fallbackImagery],
+      ).then((read) => index.value = read),
+    );
   }
 
   final left = place == null ? null : await LastPlace.read(place);
@@ -110,8 +122,8 @@ class KupeApp extends StatelessWidget {
   /// Where imagery tiles are kept between runs.
   final OsmImageryCache? imageryCache;
 
-  /// The layers of imagery to choose from.
-  final OsmImageryIndex? imageryIndex;
+  /// The layers of imagery to choose from, once they are known.
+  final ValueListenable<OsmImageryIndex>? imageryIndex;
 
   /// How imagery tiles are fetched.
   final OsmFetch? imageryFetch;
