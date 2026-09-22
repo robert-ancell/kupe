@@ -121,8 +121,15 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   )..addListener(_zoomStep);
   double? _easeFrom;
   double? _easeTo;
-  PickedWay? _hovered;
-  final _selected = <int, PickedWay>{};
+  Picked? _hovered;
+  final _selected = <(OsmElementType, int), Picked>{};
+
+  /// The ways that are selected, which is what says whether the nodes along
+  /// them can be taken hold of.
+  Set<int> get _selectedWays => {
+    for (final picked in _selected.values)
+      if (picked is PickedWay) picked.id,
+  };
 
   @override
   void initState() {
@@ -276,8 +283,15 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   void _hover(Offset at) {
     final found = _tooFarToEdit
         ? null
-        : wayAt(at, _camera, _size, _loader.store, zoom: loadZoom);
-    if (found?.way.id == _hovered?.way.id) {
+        : pickAt(
+            at,
+            _camera,
+            _size,
+            _loader.store,
+            selectedWays: _selectedWays,
+            zoom: loadZoom,
+          );
+    if (found?.id == _hovered?.id && found?.type == _hovered?.type) {
       // The same line, but its shape moves with the camera.
       _hovered = found;
       return;
@@ -293,21 +307,27 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// than a change of mind.
   void _tap(Offset at) {
     if (_tooFarToEdit) return;
-    final picked = wayAt(at, _camera, _size, _loader.store, zoom: loadZoom);
+    final picked = pickAt(
+      at,
+      _camera,
+      _size,
+      _loader.store,
+      selectedWays: _selectedWays,
+      zoom: loadZoom,
+    );
     final adding = HardwareKeyboard.instance.isShiftPressed;
     setState(() {
       if (picked == null) {
         if (!adding) _selected.clear();
         return;
       }
+      final key = (picked.type, picked.id);
       if (adding) {
-        if (_selected.remove(picked.way.id) == null) {
-          _selected[picked.way.id] = picked;
-        }
+        if (_selected.remove(key) == null) _selected[key] = picked;
       } else {
         _selected
           ..clear()
-          ..[picked.way.id] = picked;
+          ..[key] = picked;
       }
     });
   }
@@ -590,27 +610,34 @@ class _ZoomToEdit extends StatelessWidget {
 /// they have in common, which is what says whether they can be treated as one
 /// thing, and the count says how many they are.
 class _Tags extends StatelessWidget {
-  final List<PickedWay> selected;
+  final List<Picked> selected;
 
   const _Tags({required this.selected});
 
   /// The tags every selected way carries with the same value.
   Map<String, String> get _shared {
-    final shared = Map<String, String>.from(selected.first.way.tags);
+    final shared = Map<String, String>.from(selected.first.tags);
     for (final picked in selected.skip(1)) {
-      shared.removeWhere((key, value) => picked.way.tags[key] != value);
+      shared.removeWhere((key, value) => picked.tags[key] != value);
     }
     return shared;
+  }
+
+  /// What to call the selection.
+  String get _title {
+    if (selected.length > 1) return '${selected.length} selected';
+    final only = selected.single;
+    return switch (only.type) {
+      OsmElementType.node => 'Node ${only.id}',
+      OsmElementType.way => 'Way ${only.id}',
+      OsmElementType.relation => 'Relation ${only.id}',
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final tags = _shared;
     final entries = tags.keys.toList()..sort();
-    final title = selected.length == 1
-        ? 'Way ${selected.single.way.id}'
-        : '${selected.length} ways selected';
-
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xee2b3036),
@@ -632,7 +659,7 @@ class _Tags extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  title,
+                  _title,
                   style: const TextStyle(
                     color: Color(0xff9ec1ff),
                     fontSize: 12,

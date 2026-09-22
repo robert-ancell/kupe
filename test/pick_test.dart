@@ -112,6 +112,8 @@ void main() {
     expect(_pick(_middle, store), isNull);
   });
 
+  _nodes();
+
   test('picks across the seam between tiles', () {
     // A way drawn into the tile next door is still under the pointer.
     final store = _storeWith(const {'highway': 'residential'});
@@ -126,3 +128,124 @@ void main() {
 /// Where a place on the ground falls on the view.
 Offset _onScreen(double latitude, double longitude) =>
     _camera.toScreen(Mercator.x(longitude), Mercator.y(latitude), _size);
+
+/// A store holding a road of [count] nodes running east, and optionally a
+/// second road crossing it at the given node along the way.
+MapStore _road({int count = 5, int? crossingAt}) {
+  final store = MapStore();
+  final tile = TileId.at(16, _latitude, _longitude);
+  final nodes = <OsmElement>[];
+  for (var i = 0; i < count; i++) {
+    nodes.add(
+      OsmNode(
+        id: 100 + i,
+        latitude: _latitude,
+        longitude: _longitude - 0.002 + i * 0.001,
+      ),
+    );
+  }
+  store.add(tile, [
+    ...nodes,
+    OsmWay(
+      id: 1,
+      nodeIds: [for (var i = 0; i < count; i++) 100 + i],
+      tags: const {'highway': 'residential'},
+    ),
+  ]);
+
+  if (crossingAt != null) {
+    store.add(tile, [
+      OsmNode(
+        id: 200,
+        latitude: _latitude - 0.001,
+        longitude: _longitude - 0.002 + crossingAt * 0.001,
+      ),
+      OsmWay(
+        id: 2,
+        nodeIds: [100 + crossingAt, 200],
+        tags: const {'highway': 'footway'},
+      ),
+    ]);
+  }
+  return store;
+}
+
+/// Where the node [index] along the road falls on the view.
+Offset _nodeOn(int index) =>
+    _onScreen(_latitude, _longitude - 0.002 + index * 0.001);
+
+void _nodes() {
+  group('nodes', () {
+    test('takes the node where a way starts', () {
+      final picked = pickAt(_nodeOn(0), _camera, _size, _road());
+      expect(picked, isA<PickedNode>());
+      expect(picked!.id, 100);
+    });
+
+    test('takes the node where a way stops', () {
+      final picked = pickAt(_nodeOn(4), _camera, _size, _road());
+      expect(picked, isA<PickedNode>());
+      expect(picked!.id, 104);
+    });
+
+    test('takes the line rather than a node along the middle of it', () {
+      final picked = pickAt(_nodeOn(2), _camera, _size, _road());
+      expect(picked, isA<PickedWay>());
+      expect(picked!.id, 1);
+    });
+
+    test('takes a node along the middle once its line is selected', () {
+      final picked = pickAt(
+        _nodeOn(2),
+        _camera,
+        _size,
+        _road(),
+        selectedWays: const {1},
+      );
+      expect(picked, isA<PickedNode>());
+      expect(picked!.id, 102);
+    });
+
+    test('takes a node where two ways meet, selected or not', () {
+      final store = _road(crossingAt: 2);
+      final picked = pickAt(_nodeOn(2), _camera, _size, store);
+      expect(picked, isA<PickedNode>());
+      expect(picked!.id, 102);
+    });
+
+    test('takes the node rather than the line it sits on', () {
+      // Both are under the pointer; the node is the smaller thing and the
+      // line can be taken anywhere else along it.
+      final picked = pickAt(_nodeOn(0), _camera, _size, _road());
+      expect(picked, isA<PickedNode>());
+    });
+
+    test('takes nothing from a node it cannot reach', () {
+      final away = _nodeOn(0) + const Offset(0, 60);
+      expect(nodeAt(away, _camera, _size, _road()), isNull);
+    });
+
+    test('stops offering a middle node when the line is let go of', () {
+      final store = _road();
+      expect(
+        pickAt(_nodeOn(2), _camera, _size, store, selectedWays: const {1}),
+        isA<PickedNode>(),
+      );
+      expect(pickAt(_nodeOn(2), _camera, _size, store), isA<PickedWay>());
+    });
+
+    test('says which nodes can be taken hold of', () {
+      final store = _road(crossingAt: 3);
+      final way = store.ways[1]!;
+      expect(isNodeSelectable(store, way, 0), isTrue, reason: 'the start');
+      expect(isNodeSelectable(store, way, 4), isTrue, reason: 'the end');
+      expect(isNodeSelectable(store, way, 3), isTrue, reason: 'a crossing');
+      expect(isNodeSelectable(store, way, 1), isFalse, reason: 'the middle');
+      expect(
+        isNodeSelectable(store, way, 1, selectedWays: const {1}),
+        isTrue,
+        reason: 'the middle of a selected line',
+      );
+    });
+  });
+}

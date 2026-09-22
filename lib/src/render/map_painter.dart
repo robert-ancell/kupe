@@ -59,11 +59,11 @@ class MapPainter extends CustomPainter {
   /// The background imagery to draw under the map, if any.
   final List<ImageryPiece<ui.Image>> imagery;
 
-  /// The lines that are selected, drawn over the map.
-  final List<PickedWay> selection;
+  /// What is selected, drawn over the map.
+  final List<Picked> selection;
 
-  /// The line the pointer is over, drawn over everything else.
-  final PickedWay? highlight;
+  /// What the pointer is over, drawn over everything else.
+  final Picked? highlight;
 
   /// Called with how many draw calls the frame took.
   final void Function(int calls)? onDrawn;
@@ -109,6 +109,16 @@ class MapPainter extends CustomPainter {
 
   /// What has been selected, in a colour of its own so that pointing at a
   /// selected line still says which one the pointer is on.
+  /// How large a node is drawn, in pixels.
+  static const _nodeRadius = 5.0;
+
+  static final _nodeFill = Paint()..color = const Color(0xffffffff);
+
+  static final _nodeEdge = Paint()
+    ..color = const Color(0xff2f6fed)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2;
+
   static final _selectionPaint = Paint()
     ..color = const Color(0xff2f6fed)
     ..style = PaintingStyle.stroke
@@ -142,7 +152,10 @@ class MapPainter extends CustomPainter {
         }
       }
     }
+    // The nodes of a selected line are shown as it is selected, which is
+    // also exactly when they can be taken hold of.
     for (final picked in selection) {
+      if (picked is PickedWay) _drawNodes(canvas, size, picked);
       _drawPicked(canvas, size, picked, _selectionPaint);
       calls += 1;
     }
@@ -153,12 +166,41 @@ class MapPainter extends CustomPainter {
     onDrawn?.call(calls);
   }
 
+  /// Draws what has been picked out, whether pointed at or selected.
+  void _drawPicked(Canvas canvas, Size size, Picked picked, Paint paint) {
+    switch (picked) {
+      case PickedWay():
+        _drawWay(canvas, size, picked, paint);
+      case PickedNode():
+        final at = camera.toScreen(picked.worldX, picked.worldY, size);
+        canvas.drawCircle(at, _nodeRadius, _nodeFill);
+        canvas.drawCircle(
+          at,
+          _nodeRadius,
+          paint
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3,
+        );
+    }
+  }
+
+  /// Draws the nodes of a way that can be taken hold of while it is
+  /// selected, which is all of them.
+  void _drawNodes(Canvas canvas, Size size, PickedWay picked) {
+    final points = picked.points;
+    for (var i = 0; i + 1 < points.length; i += 2) {
+      final at = camera.toScreen(points[i], points[i + 1], size);
+      canvas.drawCircle(at, _nodeRadius, _nodeFill);
+      canvas.drawCircle(at, _nodeRadius, _nodeEdge);
+    }
+  }
+
   /// Draws a line that has been picked out, whether pointed at or selected.
   ///
   /// One path a frame, in screen coordinates. There are only ever a few, and
   /// they move with the camera, so building them is cheaper than holding
   /// geometry that is out of date as soon as the map moves.
-  void _drawPicked(Canvas canvas, Size size, PickedWay picked, Paint paint) {
+  void _drawWay(Canvas canvas, Size size, PickedWay picked, Paint paint) {
     final points = picked.points;
     if (points.length < 4) return;
 
@@ -203,7 +245,8 @@ class MapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(MapPainter old) =>
-      old.highlight?.way.id != highlight?.way.id ||
+      old.highlight?.id != highlight?.id ||
+      old.highlight?.type != highlight?.type ||
       !identical(old.selection, selection) ||
       !identical(old.imagery, imagery) ||
       old.camera != camera ||

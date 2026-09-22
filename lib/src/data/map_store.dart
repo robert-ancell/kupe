@@ -16,6 +16,8 @@ class MapStore {
   final _relations = <int, OsmRelation>{};
   final _drawn = <(OsmElementType, int), TileId>{};
   final _byTile = <TileId, List<OsmElement>>{};
+  final _nodeUses = <int, int>{};
+  final _nodeEnds = <int, int>{};
 
   /// Every node held, by id.
   Map<int, OsmNode> get nodes => _nodes;
@@ -57,6 +59,7 @@ class MapStore {
       if (_drawn.containsKey(key)) continue;
       _drawn[key] = tile;
       (_byTile[tile] ??= <OsmElement>[]).add(element);
+      if (element is OsmWay) _count(element, 1);
       fresh.add(element);
     }
     return fresh;
@@ -65,6 +68,36 @@ class MapStore {
   /// What [tile] drew, which is what to look through to say what is under a
   /// point on it.
   List<OsmElement> drawnIn(TileId tile) => _byTile[tile] ?? const [];
+
+  /// How many of the ways held run through the node with [id].
+  ///
+  /// More than one means the ways meet there, which is a place worth being
+  /// able to take hold of whether or not anything is selected.
+  int waysThrough(int id) => _nodeUses[id] ?? 0;
+
+  /// Whether the node with [id] is where some way starts or stops.
+  bool isEndOfWay(int id) => (_nodeEnds[id] ?? 0) > 0;
+
+  /// Keeps the count of what runs through each node as ways come and go.
+  void _count(OsmWay way, int by) {
+    if (way.nodeIds.isEmpty) return;
+    for (final id in way.nodeIds.toSet()) {
+      final uses = (_nodeUses[id] ?? 0) + by;
+      if (uses > 0) {
+        _nodeUses[id] = uses;
+      } else {
+        _nodeUses.remove(id);
+      }
+    }
+    for (final id in {way.nodeIds.first, way.nodeIds.last}) {
+      final ends = (_nodeEnds[id] ?? 0) + by;
+      if (ends > 0) {
+        _nodeEnds[id] = ends;
+      } else {
+        _nodeEnds.remove(id);
+      }
+    }
+  }
 
   /// Forgets everything [tile] drew, so that reading it again starts clean.
   ///
@@ -80,6 +113,10 @@ class MapStore {
     }
     for (final key in letting) {
       _drawn.remove(key);
+      if (key.$1 == OsmElementType.way) {
+        final way = _ways[key.$2];
+        if (way != null && way.nodeIds.isNotEmpty) _count(way, -1);
+      }
       switch (key.$1) {
         case OsmElementType.node:
           _nodes.remove(key.$2);

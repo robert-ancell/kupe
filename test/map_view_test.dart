@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/map/map_view.dart';
+import 'package:kupe/src/map/pick.dart';
 import 'package:kupe/src/render/map_painter.dart';
 import 'package:osm/osm.dart';
 
@@ -103,6 +104,41 @@ Future<Uint8List?> _twoRoads(
   }
   roads.write('</osm>');
   return Uint8List.fromList(utf8.encode(roads.toString()));
+}
+
+/// A short road of three nodes, all of them on screen at zoom 18, so that
+/// its ends and its middle can each be pointed at.
+Future<Uint8List?> _shortRoad(
+  Uri uri, {
+  Future<void>? abandon,
+  void Function(Uint8List body)? onLate,
+}) async {
+  final box = uri.queryParameters['bbox']!
+      .split(',')
+      .map(double.parse)
+      .toList();
+  final south = box[1];
+  final north = box[3];
+  if (_roadLatitude < south || _roadLatitude > north) {
+    return Uint8List.fromList(utf8.encode('<osm version="0.6"/>'));
+  }
+  final id = (_served += 10);
+  final nodes = StringBuffer();
+  for (var i = 0; i < 3; i++) {
+    nodes.write(
+      '<node id="${id + i}" lat="$_roadLatitude" '
+      'lon="${174.76 - 0.0005 + i * 0.0005}" version="1"/>',
+    );
+  }
+  return Uint8List.fromList(
+    utf8.encode(
+      '<osm version="0.6">$nodes'
+      '<way id="${id + 5}" version="1">'
+      '<nd ref="$id"/><nd ref="${id + 1}"/><nd ref="${id + 2}"/>'
+      '<tag k="highway" v="residential"/></way>'
+      '</osm>',
+    ),
+  );
 }
 
 MapPainter _painterIn(WidgetTester tester) =>
@@ -289,7 +325,7 @@ void main() {
 
       await point(tester, const Offset(500, 400));
       expect(_painterIn(tester).highlight, isNotNull);
-      expect(_painterIn(tester).highlight!.way.tags['highway'], 'residential');
+      expect(_painterIn(tester).highlight!.tags['highway'], 'residential');
     });
 
     testWidgets('highlights nothing away from the line', (tester) async {
@@ -403,7 +439,7 @@ void main() {
       await tester.pump();
       await shift(tester, () => tester.tapAt(other));
       expect(_painterIn(tester).selection.length, 2);
-      expect(find.text('2 ways selected'), findsOneWidget);
+      expect(find.text('2 selected'), findsOneWidget);
     });
 
     testWidgets('shows only what the selection shares', (tester) async {
@@ -464,6 +500,93 @@ void main() {
       );
       await tester.pump();
       expect(_painterIn(tester).selection, isEmpty);
+    });
+  });
+
+  group('selecting nodes', () {
+    /// A road of three nodes: its ends 93 pixels either side of the middle
+    /// of the view, and a node in the middle of the line at the centre.
+    Future<void> openOver(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: _shortRoad),
+              initialCamera: Camera.at(
+                latitude: _roadLatitude,
+                longitude: 174.76,
+                zoom: 18,
+              ),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+    }
+
+    Offset endOfRoad(WidgetTester tester) {
+      final way =
+          _painterIn(tester).selection.whereType<PickedWay>().firstOrNull ??
+          _painterIn(tester).highlight as PickedWay;
+      return _painterIn(tester).camera
+          .toScreen(way.points[0], way.points[1], const Size(1000, 800));
+    }
+
+    testWidgets('takes the line, not a node along the middle of it', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).selection.single, isA<PickedWay>());
+      expect(find.textContaining('Way '), findsOneWidget);
+    });
+
+    testWidgets('takes the node a line ends at', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      final end = endOfRoad(tester);
+
+      await tester.tapAt(end);
+      await tester.pump();
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+      expect(find.textContaining('Node '), findsOneWidget);
+    });
+
+    testWidgets('takes a node along the middle once the line is taken', (
+      tester,
+    ) async {
+      await openOver(tester);
+      // Nothing selected: the middle of the line gives the line.
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).selection.single, isA<PickedWay>());
+
+      // Selected: the same place now gives the node on it.
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+    });
+
+    testWidgets('takes the line again once the node is let go of', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+
+      // With only the node selected, its line is not, so the nodes along
+      // the middle of it are out of reach again and the same place gives
+      // the line back.
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).selection.single, isA<PickedWay>());
     });
   });
 }
