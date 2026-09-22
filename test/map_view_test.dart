@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kupe/src/map/camera.dart';
@@ -70,6 +71,38 @@ Future<Uint8List?> _oneRoad(
       '</osm>',
     ),
   );
+}
+
+/// Two roads running east to west, one a little south of the other, so that
+/// there is something to add to a selection and something to take out.
+Future<Uint8List?> _twoRoads(
+  Uri uri, {
+  Future<void>? abandon,
+  void Function(Uint8List body)? onLate,
+}) async {
+  final box = uri.queryParameters['bbox']!
+      .split(',')
+      .map(double.parse)
+      .toList();
+  final [west, south, east, north] = box;
+  final roads = StringBuffer('<osm version="0.6">');
+  for (final (index, road) in [
+    (0, (latitude: _roadLatitude, name: 'First Road')),
+    (1, (latitude: _roadLatitude - 0.0004, name: 'Second Road')),
+  ]) {
+    if (road.latitude < south || road.latitude > north) continue;
+    final id = (_served += 10) + index;
+    roads.write(
+      '<node id="$id" lat="${road.latitude}" lon="$west" version="1"/>'
+      '<node id="${id + 1}" lat="${road.latitude}" lon="$east" version="1"/>'
+      '<way id="${id + 2}" version="1">'
+      '<nd ref="$id"/><nd ref="${id + 1}"/>'
+      '<tag k="highway" v="residential"/>'
+      '<tag k="name" v="${road.name}"/></way>',
+    );
+  }
+  roads.write('</osm>');
+  return Uint8List.fromList(utf8.encode(roads.toString()));
 }
 
 MapPainter _painterIn(WidgetTester tester) =>
@@ -302,6 +335,135 @@ void main() {
       await mouse.moveTo(const Offset(-50, -50));
       await tester.pump();
       expect(_painterIn(tester).highlight, isNull);
+    });
+  });
+
+  group('selecting', () {
+    Future<void> openOver(WidgetTester tester, {double zoom = 18}) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: _twoRoads),
+              initialCamera: Camera.at(
+                latitude: _roadLatitude,
+                longitude: 174.76,
+                zoom: zoom,
+              ),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+    }
+
+    /// Where the second road runs, a little south of the first.
+    const other = Offset(500, 490);
+
+    Future<void> shift(WidgetTester tester, Future<void> Function() act) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await act();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+    }
+
+    testWidgets('selects the line that is clicked', (tester) async {
+      await openOver(tester);
+      expect(_painterIn(tester).selection, isEmpty);
+
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).selection.length, 1);
+      expect(find.textContaining('Way '), findsOneWidget);
+    });
+
+    testWidgets('shows what the line is tagged with', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(find.text('highway = residential'), findsOneWidget);
+      expect(find.text('name = First Road'), findsOneWidget);
+    });
+
+    testWidgets('selects one line at a time without shift', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      await tester.tapAt(other);
+      await tester.pump();
+      expect(_painterIn(tester).selection.length, 1);
+      expect(find.text('name = Second Road'), findsOneWidget);
+    });
+
+    testWidgets('adds to the selection with shift', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      await shift(tester, () => tester.tapAt(other));
+      expect(_painterIn(tester).selection.length, 2);
+      expect(find.text('2 ways selected'), findsOneWidget);
+    });
+
+    testWidgets('shows only what the selection shares', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      await shift(tester, () => tester.tapAt(other));
+      // Both are residential roads; only one of them is First Road.
+      expect(find.text('highway = residential'), findsOneWidget);
+      expect(find.text('name = First Road'), findsNothing);
+    });
+
+    testWidgets('takes out of the selection with shift', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      await shift(tester, () => tester.tapAt(other));
+      expect(_painterIn(tester).selection.length, 2);
+
+      await shift(tester, () => tester.tapAt(other));
+      expect(_painterIn(tester).selection.length, 1);
+      expect(find.text('name = First Road'), findsOneWidget);
+    });
+
+    testWidgets('clears the selection on clicking nothing', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).selection, isNotEmpty);
+
+      await tester.tapAt(const Offset(500, 700));
+      await tester.pump();
+      expect(_painterIn(tester).selection, isEmpty);
+      expect(find.textContaining('Way '), findsNothing);
+    });
+
+    testWidgets('keeps the selection on a shift click at nothing', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      await shift(tester, () => tester.tapAt(const Offset(500, 700)));
+      expect(_painterIn(tester).selection.length, 1);
+    });
+
+    testWidgets('lets go of the selection when zoomed out', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      expect(_painterIn(tester).selection, isNotEmpty);
+
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(
+          position: Offset(500, 400),
+          scrollDelta: Offset(0, 800),
+        ),
+      );
+      await tester.pump();
+      expect(_painterIn(tester).selection, isEmpty);
     });
   });
 }

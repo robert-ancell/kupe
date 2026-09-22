@@ -59,6 +59,9 @@ class MapPainter extends CustomPainter {
   /// The background imagery to draw under the map, if any.
   final List<ImageryPiece<ui.Image>> imagery;
 
+  /// The lines that are selected, drawn over the map.
+  final List<PickedWay> selection;
+
   /// The line the pointer is over, drawn over everything else.
   final PickedWay? highlight;
 
@@ -70,6 +73,7 @@ class MapPainter extends CustomPainter {
     required this.camera,
     required this.tiles,
     this.imagery = const [],
+    this.selection = const [],
     this.highlight,
     this.onDrawn,
   });
@@ -103,6 +107,14 @@ class MapPainter extends CustomPainter {
     ..strokeCap = StrokeCap.round
     ..strokeJoin = StrokeJoin.round;
 
+  /// What has been selected, in a colour of its own so that pointing at a
+  /// selected line still says which one the pointer is on.
+  static final _selectionPaint = Paint()
+    ..color = const Color(0xff2f6fed)
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, _paints[layerIndex('earth')]);
@@ -130,19 +142,23 @@ class MapPainter extends CustomPainter {
         }
       }
     }
+    for (final picked in selection) {
+      _drawPicked(canvas, size, picked, _selectionPaint);
+      calls += 1;
+    }
     if (highlight != null) {
-      _drawHighlight(canvas, size, highlight!);
+      _drawPicked(canvas, size, highlight!, _highlightPaint);
       calls += 1;
     }
     onDrawn?.call(calls);
   }
 
-  /// Draws the line the pointer is over.
+  /// Draws a line that has been picked out, whether pointed at or selected.
   ///
-  /// One path a frame, in screen coordinates, because there is only ever one
-  /// of them and it moves with the pointer: building it is cheaper than
-  /// holding geometry that is out of date as soon as the pointer moves.
-  void _drawHighlight(Canvas canvas, Size size, PickedWay picked) {
+  /// One path a frame, in screen coordinates. There are only ever a few, and
+  /// they move with the camera, so building them is cheaper than holding
+  /// geometry that is out of date as soon as the map moves.
+  void _drawPicked(Canvas canvas, Size size, PickedWay picked, Paint paint) {
     final points = picked.points;
     if (points.length < 4) return;
 
@@ -188,6 +204,7 @@ class MapPainter extends CustomPainter {
   @override
   bool shouldRepaint(MapPainter old) =>
       old.highlight?.way.id != highlight?.way.id ||
+      !identical(old.selection, selection) ||
       !identical(old.imagery, imagery) ||
       old.camera != camera ||
       !identical(old.tiles, tiles);

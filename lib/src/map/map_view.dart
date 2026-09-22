@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
 
@@ -121,6 +122,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   double? _easeFrom;
   double? _easeTo;
   PickedWay? _hovered;
+  final _selected = <int, PickedWay>{};
 
   @override
   void initState() {
@@ -203,7 +205,12 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   }
 
   void _moveTo(Camera camera) {
-    setState(() => _camera = camera);
+    setState(() {
+      _camera = camera;
+      // Out here there is no editing to be done, so there is nothing to have
+      // selected either.
+      if (_tooFarToEdit) _selected.clear();
+    });
     // Imagery is asked for as the map moves rather than once it settles,
     // since its servers are built for it and a blank background mid pan is
     // what makes a map feel slow.
@@ -278,6 +285,33 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     setState(() => _hovered = found);
   }
 
+  /// Selects what the pointer is on.
+  ///
+  /// Holding shift adds to the selection, or takes out what was already in
+  /// it, which is how every editor does it. Clicking away from everything
+  /// clears the selection, unless shift is held, since that is a miss rather
+  /// than a change of mind.
+  void _tap(Offset at) {
+    if (_tooFarToEdit) return;
+    final picked = wayAt(at, _camera, _size, _loader.store, zoom: loadZoom);
+    final adding = HardwareKeyboard.instance.isShiftPressed;
+    setState(() {
+      if (picked == null) {
+        if (!adding) _selected.clear();
+        return;
+      }
+      if (adding) {
+        if (_selected.remove(picked.way.id) == null) {
+          _selected[picked.way.id] = picked;
+        }
+      } else {
+        _selected
+          ..clear()
+          ..[picked.way.id] = picked;
+      }
+    });
+  }
+
   void _scroll(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
     _moveTo(
@@ -304,6 +338,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
               if (_hovered != null) setState(() => _hovered = null);
             },
             child: GestureDetector(
+              onTapUp: (details) => _tap(details.localPosition),
               onScaleStart: (_) => _zoomFrom = _camera.zoom,
               onScaleUpdate: (details) {
                 var camera = _camera.panned(details.focalPointDelta);
@@ -328,6 +363,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                           tiles: _meshes,
                           imagery:
                               _imagery?.piecesFor(_camera, size) ?? const [],
+                          selection: _selected.values.toList(),
                           highlight: _hovered,
                           onDrawn: (calls) => _drawCalls = calls,
                         ),
@@ -338,6 +374,12 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                   if (_tooFarToEdit)
                     Positioned.fill(
                       child: Center(child: _ZoomToEdit(onPressed: _zoomToEdit)),
+                    ),
+                  if (_selected.isNotEmpty)
+                    Positioned(
+                      left: 12,
+                      bottom: 12,
+                      child: _Tags(selected: _selected.values.toList()),
                     ),
                   if (_source?.attribution case final credit?)
                     Positioned(
@@ -535,6 +577,91 @@ class _ZoomToEdit extends StatelessWidget {
                 style: TextStyle(fontSize: 14, color: Color(0xffffffff)),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The tags of what is selected.
+///
+/// One thing selected shows everything it is tagged with. Several show what
+/// they have in common, which is what says whether they can be treated as one
+/// thing, and the count says how many they are.
+class _Tags extends StatelessWidget {
+  final List<PickedWay> selected;
+
+  const _Tags({required this.selected});
+
+  /// The tags every selected way carries with the same value.
+  Map<String, String> get _shared {
+    final shared = Map<String, String>.from(selected.first.way.tags);
+    for (final picked in selected.skip(1)) {
+      shared.removeWhere((key, value) => picked.way.tags[key] != value);
+    }
+    return shared;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tags = _shared;
+    final entries = tags.keys.toList()..sort();
+    final title = selected.length == 1
+        ? 'Way ${selected.single.way.id}'
+        : '${selected.length} ways selected';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xee2b3036),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 280, maxWidth: 340),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: DefaultTextStyle(
+            style: const TextStyle(
+              color: Color(0xffffffff),
+              fontSize: 12,
+              fontFamily: 'monospace',
+              height: 1.5,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xff9ec1ff),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                if (entries.isEmpty)
+                  Text(
+                    selected.length == 1
+                        ? 'no tags'
+                        : 'nothing tagged the same',
+                    style: const TextStyle(color: Color(0xffa0a6ad)),
+                  )
+                else
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final key in entries)
+                            Text('$key = ${tags[key]}'),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
