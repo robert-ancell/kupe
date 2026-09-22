@@ -21,6 +21,20 @@ const maximumImageryTiles = 160;
 /// better than a blank square while the right one loads.
 const imageryFallbackLevels = 4;
 
+/// How many rings of tiles beyond the view are fetched.
+///
+/// Imagery comes from servers built to hand out a great deal of it, and a
+/// ring of tiles already in hand is the difference between a map that slides
+/// and one that fills itself in behind the drag.
+const imageryMargin = 1;
+
+/// How far in a tile is looked for to stand in for one that has not arrived.
+///
+/// Zooming out leaves the finer tiles held and the coarser one not, so the
+/// pieces of it that are held are drawn in its place. Two levels is sixteen
+/// pieces, which is as much looking about as is worth doing.
+const imageryFinerLevels = 2;
+
 /// Part of the view, and the tile that fills it.
 ///
 /// [image] is the tile of [from], which is either [tile] itself or a coarser
@@ -96,7 +110,7 @@ class ImageryLayer<T extends Object> {
   /// Asks for the tiles [camera] can see, giving up on any it no longer can.
   void look(Camera camera, Size size) {
     final zoom = zoomFor(camera);
-    final wanted = camera.tilesFor(size, zoom);
+    final wanted = camera.tilesFor(size, zoom, margin: imageryMargin);
     final centre = Offset(camera.x, camera.y);
     wanted.sort(
       (a, b) => _fromCentre(a, centre).compareTo(_fromCentre(b, centre)),
@@ -126,18 +140,41 @@ class ImageryLayer<T extends Object> {
   List<ImageryPiece<T>> piecesFor(Camera camera, Size size) {
     final pieces = <ImageryPiece<T>>[];
     for (final tile in camera.tilesFor(size, zoomFor(camera))) {
-      var from = tile;
-      for (var level = 0; level <= imageryFallbackLevels; level++) {
-        final image = _touch(from);
-        if (image != null) {
-          pieces.add(ImageryPiece(tile, from, image));
-          break;
-        }
-        if (from.zoom == 0) break;
-        from = from.parent;
-      }
+      if (_coarserFor(pieces, tile)) continue;
+      // Nothing coarser held either. Zooming out is the other way round: the
+      // finer tiles are the ones in hand, so whatever pieces of this tile are
+      // held are drawn in its place.
+      _finerFor(pieces, tile, imageryFinerLevels);
     }
     return pieces;
+  }
+
+  /// Adds the tile itself if it is held, or the closest coarser one that is.
+  bool _coarserFor(List<ImageryPiece<T>> pieces, TileId tile) {
+    var from = tile;
+    for (var level = 0; level <= imageryFallbackLevels; level++) {
+      final image = _touch(from);
+      if (image != null) {
+        pieces.add(ImageryPiece(tile, from, image));
+        return true;
+      }
+      if (from.zoom == 0) return false;
+      from = from.parent;
+    }
+    return false;
+  }
+
+  /// Adds whichever pieces of [tile] are held, each drawn in its own place.
+  void _finerFor(List<ImageryPiece<T>> pieces, TileId tile, int levels) {
+    if (levels == 0) return;
+    for (final child in tile.children) {
+      final image = _touch(child);
+      if (image != null) {
+        pieces.add(ImageryPiece(child, child, image));
+      } else {
+        _finerFor(pieces, child, levels - 1);
+      }
+    }
   }
 
   /// Lets go of every tile and gives up on everything being fetched.

@@ -72,13 +72,16 @@ class Camera {
   }
 
   /// The tiles at [zoom] needed to cover a view of [size].
-  List<TileId> tilesFor(Size size, int tileZoom) {
+  ///
+  /// [margin] adds rings of tiles beyond the edges, for asking for what is
+  /// about to be scrolled into view rather than once it already has been.
+  List<TileId> tilesFor(Size size, int tileZoom, {int margin = 0}) {
     final bounds = worldBounds(size);
     final across = 1 << tileZoom;
-    final left = (bounds.left * across).floor().clamp(0, across - 1);
-    final right = (bounds.right * across).ceil().clamp(0, across);
-    final top = (bounds.top * across).floor().clamp(0, across - 1);
-    final bottom = (bounds.bottom * across).ceil().clamp(0, across);
+    final left = ((bounds.left * across).floor() - margin).clamp(0, across - 1);
+    final right = ((bounds.right * across).ceil() + margin).clamp(0, across);
+    final top = ((bounds.top * across).floor() - margin).clamp(0, across - 1);
+    final bottom = ((bounds.bottom * across).ceil() + margin).clamp(0, across);
     return [
       for (var ty = top; ty < bottom; ty++)
         for (var tx = left; tx < right; tx++) TileId(tileZoom, tx, ty),

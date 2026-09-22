@@ -110,13 +110,13 @@ void main() {
     expect(_layer(_Server()).zoomFor(_at(21)), _source.maximumZoom);
   });
 
-  test('asks only for the tiles on screen', () async {
+  test('asks for the tiles on screen and the ring around them', () async {
     final server = _Server();
     final layer = _layer(server);
     final camera = _at(17);
     layer.look(camera, _size);
     await _drain();
-    final wanted = camera.tilesFor(_size, 17);
+    final wanted = camera.tilesFor(_size, 17, margin: imageryMargin);
     expect(server.asked.length, wanted.length);
     for (final tile in wanted) {
       expect(server.asked, contains('/17/${tile.x}/${tile.y}.webp'));
@@ -357,6 +357,88 @@ void main() {
       // What is held is drawn at once, and a newer one is on its way.
       expect(layer.piecesFor(camera, _size), isNotEmpty);
       expect(second.asked, isNotEmpty);
+    });
+  });
+
+  group('never goes blank', () {
+    test('draws the coarser tiles it holds while zooming in', () async {
+      final server = _Server();
+      final layer = _layer(server);
+      layer.look(_at(16), _size);
+      await _drain();
+
+      server.hold = true;
+      final closer = _at(17);
+      layer.look(closer, _size);
+      final pieces = layer.piecesFor(closer, _size);
+      expect(pieces.length, closer.tilesFor(_size, 17).length);
+      for (final piece in pieces) {
+        expect(piece.from.zoom, lessThan(piece.tile.zoom));
+      }
+    });
+
+    test('draws the finer tiles it holds while zooming out', () async {
+      // The other way round, and the one that was blank: zooming out leaves
+      // what is held finer than what is wanted.
+      final server = _Server();
+      final layer = _layer(server);
+      layer.look(_at(17), _size);
+      await _drain();
+
+      server.hold = true;
+      final wider = _at(16);
+      layer.look(wider, _size);
+      final pieces = layer.piecesFor(wider, _size);
+      expect(pieces, isNotEmpty);
+      for (final piece in pieces) {
+        expect(piece.from, piece.tile);
+        expect(piece.tile.zoom, greaterThan(16));
+      }
+    });
+
+    test('draws nothing for ground it has never held', () async {
+      final server = _Server()..hold = true;
+      final layer = _layer(server);
+      final camera = _at(17);
+      layer.look(camera, _size);
+      expect(layer.piecesFor(camera, _size), isEmpty);
+    });
+
+    test('asks for a ring beyond the view', () async {
+      final server = _Server();
+      final layer = _layer(server);
+      final camera = _at(17);
+      layer.look(camera, _size);
+      await _drain();
+      // What is on screen, and a ring around it ready for the next drag.
+      expect(
+        server.asked.length,
+        greaterThan(camera.tilesFor(_size, 17).length),
+      );
+      expect(
+        server.asked.length,
+        camera.tilesFor(_size, 17, margin: imageryMargin).length,
+      );
+    });
+
+    test('keeps what it has drawn as the map is moved about', () async {
+      final server = _Server();
+      final layer = _layer(server);
+      final start = _at(17);
+      layer.look(start, _size);
+      await _drain();
+      final held = layer.held;
+
+      for (final zoom in [17.6, 18.0, 17.0]) {
+        layer.look(_at(zoom), _size);
+        await _drain();
+      }
+      // Nothing is let go of on the way, so coming back is instant.
+      expect(layer.held, greaterThanOrEqualTo(held));
+      expect(
+        layer.piecesFor(start, _size).length,
+        start.tilesFor(_size, 17).length,
+      );
     });
   });
 }
