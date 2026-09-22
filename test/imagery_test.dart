@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:kupe/src/geometry/tile.dart';
+import 'package:kupe/src/imagery/imagery_cache.dart';
 import 'package:kupe/src/imagery/imagery_layer.dart';
 import 'package:kupe/src/imagery/imagery_source.dart';
 import 'package:kupe/src/map/camera.dart';
@@ -82,15 +84,19 @@ class _Server {
   }
 }
 
-ImageryLayer<_Picture> _layer(_Server server, {int inFlight = 6}) =>
-    ImageryLayer<_Picture>(
-      source: _source,
-      fetch: server.fetch,
-      decode: (bytes) async => _Picture(String.fromCharCodes(bytes)),
-      release: (picture) => picture.released = true,
-      onChanged: () {},
-      inFlight: inFlight,
-    );
+ImageryLayer<_Picture> _layer(
+  _Server server, {
+  int inFlight = 6,
+  ImageryCache? cache,
+}) => ImageryLayer<_Picture>(
+  source: _source,
+  fetch: server.fetch,
+  decode: (bytes) async => _Picture(String.fromCharCodes(bytes)),
+  release: (picture) => picture.released = true,
+  onChanged: () {},
+  cache: cache,
+  inFlight: inFlight,
+);
 
 Camera _at(double zoom) =>
     Camera.at(latitude: -36.85, longitude: 174.76, zoom: zoom);
@@ -286,5 +292,91 @@ void main() {
     layer.dispose();
     expect(pictures.every((p) => p.released), isTrue);
     expect(layer.held, 0);
+  });
+
+  group('kept on disk', () {
+    late Directory work;
+
+    setUp(() async {
+      work = await Directory.systemTemp.createTemp('kupe_imagery_layer');
+    });
+
+    tearDown(() async {
+      if (work.existsSync()) await work.delete(recursive: true);
+    });
+
+    test('keeps what it fetched for next time', () async {
+      final cache = await ImageryCache.open(work);
+      final server = _Server();
+      _layer(server, cache: cache).look(_at(17), _size);
+      await _drain();
+      expect(cache.tiles.length, server.asked.length);
+    });
+
+    test('draws from disk without asking for anything', () async {
+      final cache = await ImageryCache.open(work);
+      final first = _Server();
+      _layer(first, cache: cache).look(_at(17), _size);
+      await _drain();
+      expect(first.asked, isNotEmpty);
+
+      final again = await ImageryCache.open(work);
+      final second = _Server();
+      final layer = _layer(second, cache: again);
+      final camera = _at(17);
+      layer.look(camera, _size);
+      await _drain();
+      expect(second.asked, isEmpty);
+      expect(
+        layer.piecesFor(camera, _size).length,
+        camera.tilesFor(_size, 17).length,
+      );
+    });
+
+    test('remembers empty ground between runs', () async {
+      final cache = await ImageryCache.open(work);
+      final camera = _at(17);
+      final first = _Server();
+      for (final tile in camera.tilesFor(_size, 17)) {
+        first.empty.add('/17/${tile.x}/${tile.y}.webp');
+      }
+      _layer(first, cache: cache).look(camera, _size);
+      await _drain();
+
+      final again = await ImageryCache.open(work);
+      final second = _Server();
+      _layer(second, cache: again).look(camera, _size);
+      await _drain();
+      expect(second.asked, isEmpty);
+    });
+
+    test('draws an old tile while fetching a newer one', () async {
+      final cache = await ImageryCache.open(work);
+      final first = _Server();
+      _layer(first, cache: cache).look(_at(17), _size);
+      await _drain();
+
+      // A week on, with the server holding its answers.
+      final index = File('${work.path}/index.json');
+      final long = DateTime.now()
+          .subtract(imageryFreshness * 2)
+          .millisecondsSinceEpoch;
+      await index.writeAsString(
+        (await index.readAsString()).replaceAll(
+          RegExp(r'"at":\d+'),
+          '"at":$long',
+        ),
+      );
+      final aged = await ImageryCache.open(work);
+      final second = _Server()..hold = true;
+      final layer = _layer(second, cache: aged);
+      final camera = _at(17);
+      layer.look(camera, _size);
+      await _drain();
+
+      // What is held is drawn at once, and a newer one is on its way.
+      expect(layer.piecesFor(camera, _size), isNotEmpty);
+      expect(second.asked, isNotEmpty);
+    });
   });
 }

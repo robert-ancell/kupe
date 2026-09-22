@@ -9,6 +9,7 @@ import 'package:osm/osm.dart';
 
 import '../data/map_loader.dart';
 import '../data/tile_cache.dart';
+import '../imagery/imagery_cache.dart';
 import '../imagery/imagery_layer.dart';
 import '../imagery/imagery_source.dart';
 import '../geometry/tile.dart';
@@ -49,6 +50,9 @@ class MapView extends StatefulWidget {
   /// The imagery to draw under the map, if any.
   final ImagerySource? imagery;
 
+  /// Where imagery tiles are kept between runs.
+  final ImageryCache? imageryCache;
+
   /// How imagery tiles are fetched.
   ///
   /// Kept apart from the fetch the API uses, so that imagery, which comes
@@ -63,6 +67,7 @@ class MapView extends StatefulWidget {
     required this.initialCamera,
     this.cache,
     this.imagery,
+    this.imageryCache,
     this.imageryFetch,
   });
 
@@ -86,6 +91,7 @@ class _MapViewState extends State<MapView> {
           fetch: widget.imageryFetch ?? httpFetch(),
           decode: _decode,
           release: (image) => image.dispose(),
+          cache: widget.imageryCache,
           onChanged: () {
             if (mounted) setState(() {});
           },

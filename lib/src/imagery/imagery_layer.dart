@@ -7,6 +7,7 @@ import 'package:osm/osm.dart';
 
 import '../geometry/tile.dart';
 import '../map/camera.dart';
+import 'imagery_cache.dart';
 import 'imagery_source.dart';
 
 /// How many decoded tiles are held.
@@ -59,6 +60,9 @@ class ImageryLayer<T extends Object> {
   /// Lets go of a decoded tile that is no longer held.
   final void Function(T image) release;
 
+  /// Where tiles are kept between runs, if anywhere.
+  final ImageryCache? cache;
+
   /// Called whenever a tile arrives.
   final void Function() onChanged;
 
@@ -78,6 +82,7 @@ class ImageryLayer<T extends Object> {
     required this.decode,
     required this.release,
     required this.onChanged,
+    this.cache,
     this.inFlight = 6,
   });
 
@@ -110,10 +115,13 @@ class ImageryLayer<T extends Object> {
     }
     _queue = [
       for (final tile in wanted)
-        if (!_images.containsKey(tile) &&
-            !_missing.contains(tile) &&
-            !_reading.containsKey(tile))
-          tile,
+        if (!_missing.contains(tile) && !_reading.containsKey(tile))
+          // A tile already decoded needs nothing unless what it was decoded
+          // from has aged, in which case it is drawn while a newer one is
+          // fetched over the top of it.
+          if (!_images.containsKey(tile) ||
+              (cache?.entry(tile)?.isStale ?? false))
+            tile,
     ];
     _pump();
   }
@@ -180,18 +188,38 @@ class ImageryLayer<T extends Object> {
 
   Future<void> _load(TileId tile, Future<void> abandon) async {
     try {
+      // What is on disk is drawn before anything is asked for, so a map that
+      // has been looked at before is there the moment it opens.
+      final held = cache?.entry(tile);
+      if (held != null && !_images.containsKey(tile)) {
+        if (held.missing) {
+          _missing.add(tile);
+          return;
+        }
+        final kept = await cache!.read(tile);
+        if (kept != null) {
+          await _store(tile, kept);
+          // Aerial imagery is reflown in years, so a tile within its week is
+          // taken as current and nothing is asked for at all.
+          if (!held.isStale) return;
+        }
+      }
+
       final bytes = await fetch(
         source.tileUri(tile),
         abandon: abandon,
         // Already on its way when it was given up on. It is a few kilobytes
         // and the view may well come back to it, so it is kept.
-        onLate: (late) => unawaited(_store(tile, late)),
+        onLate: (late) => unawaited(_keep(tile, late)),
       );
       if (bytes == null) {
-        // Outside the ground the source covers. Asking again will not help.
+        // Outside the ground the source covers. Asking again will not help,
+        // now or on the next run.
         _missing.add(tile);
+        await cache?.markMissing(tile);
       } else {
         await _store(tile, bytes);
+        await cache?.write(tile, bytes);
       }
     } on OsmAbandonedException {
       // Scrolled off; asked for again if it comes back.
@@ -203,6 +231,12 @@ class ImageryLayer<T extends Object> {
       _reading.remove(tile);
       _pump();
     }
+  }
+
+  /// Keeps a tile that arrived after it stopped being waited for.
+  Future<void> _keep(TileId tile, Uint8List bytes) async {
+    await _store(tile, bytes);
+    await cache?.write(tile, bytes);
   }
 
   Future<void> _store(TileId tile, Uint8List bytes) async {

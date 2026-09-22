@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'src/data/map_loader.dart';
 import 'src/data/tile_cache.dart';
+import 'src/imagery/imagery_cache.dart';
 import 'src/imagery/imagery_source.dart';
 import 'src/map/camera.dart';
 import 'src/map/map_view.dart';
@@ -36,11 +37,14 @@ Future<void> main(List<String> arguments) async {
   // Somewhere to keep what has been read. Without it the editor still works
   // and simply reads everything again each time.
   TileCache? cache;
+  ImageryCache? imagery;
   try {
     final directory = await getApplicationCacheDirectory();
     cache = await TileCache.open(Directory('${directory.path}/tiles'));
+    imagery = await ImageryCache.open(Directory('${directory.path}/imagery'));
   } on Exception {
     cache = null;
+    imagery = null;
   }
 
   runApp(
@@ -54,6 +58,7 @@ Future<void> main(List<String> arguments) async {
             zoom: _somewhere.zoom,
           ),
       cache: cache,
+      imageryCache: imagery,
     ),
   );
 }
@@ -66,8 +71,16 @@ class KupeApp extends StatelessWidget {
   /// Where boxes already read are kept between runs.
   final TileCache? cache;
 
+  /// Where imagery tiles are kept between runs.
+  final ImageryCache? imageryCache;
+
   /// Creates the app.
-  const KupeApp({super.key, required this.camera, this.cache});
+  const KupeApp({
+    super.key,
+    required this.camera,
+    this.cache,
+    this.imageryCache,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +95,7 @@ class KupeApp extends StatelessWidget {
           initialCamera: camera,
           cache: cache,
           imagery: linzAerial,
+          imageryCache: imageryCache,
           imageryFetch: httpFetch(contact: contact, concurrency: 6),
         ),
       ),
