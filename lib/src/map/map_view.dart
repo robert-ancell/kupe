@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +9,8 @@ import 'package:osm/osm.dart';
 
 import '../data/map_loader.dart';
 import '../data/tile_cache.dart';
+import '../imagery/imagery_layer.dart';
+import '../imagery/imagery_source.dart';
 import '../geometry/tile.dart';
 import '../render/map_painter.dart';
 import 'camera.dart';
@@ -42,12 +46,24 @@ class MapView extends StatefulWidget {
   /// Where boxes already read are kept between runs.
   final TileCache? cache;
 
+  /// The imagery to draw under the map, if any.
+  final ImagerySource? imagery;
+
+  /// How imagery tiles are fetched.
+  ///
+  /// Kept apart from the fetch the API uses, so that imagery, which comes
+  /// from servers built to hand out a great deal of it, never takes a turn
+  /// the API could have used.
+  final OsmFetch? imageryFetch;
+
   /// Creates the map.
   const MapView({
     super.key,
     required this.api,
     required this.initialCamera,
     this.cache,
+    this.imagery,
+    this.imageryFetch,
   });
 
   @override
@@ -63,6 +79,17 @@ class _MapViewState extends State<MapView> {
       if (mounted) setState(() {});
     },
   );
+  late final ImageryLayer<ui.Image>? _imagery = widget.imagery == null
+      ? null
+      : ImageryLayer<ui.Image>(
+          source: widget.imagery!,
+          fetch: widget.imageryFetch ?? httpFetch(),
+          decode: _decode,
+          release: (image) => image.dispose(),
+          onChanged: () {
+            if (mounted) setState(() {});
+          },
+        );
   final _uploaded = <TileId, GpuTileMesh>{};
   final _stats = FrameStats();
   Timer? _settle;
@@ -76,6 +103,7 @@ class _MapViewState extends State<MapView> {
     _settle?.cancel();
     _check?.cancel();
     _loader.dispose();
+    _imagery?.dispose();
     for (final mesh in _uploaded.values) {
       mesh.dispose();
     }
@@ -101,6 +129,7 @@ class _MapViewState extends State<MapView> {
     _settle?.cancel();
     _check?.cancel();
     _loader.dispose();
+    _imagery?.dispose();
     _settle = Timer(settleDelay, () {
       if (mounted) _loader.look(_camera, _size);
     });
@@ -111,6 +140,10 @@ class _MapViewState extends State<MapView> {
 
   void _moveTo(Camera camera) {
     setState(() => _camera = camera);
+    // Imagery is asked for as the map moves rather than once it settles,
+    // since its servers are built for it and a blank background mid pan is
+    // what makes a map feel slow.
+    _imagery?.look(camera, _size);
     _lookSoon();
   }
 
@@ -128,6 +161,7 @@ class _MapViewState extends State<MapView> {
         final size = constraints.biggest;
         if (size != _size) {
           _size = size;
+          _imagery?.look(_camera, size);
           _lookSoon();
         }
         return Listener(
@@ -154,12 +188,19 @@ class _MapViewState extends State<MapView> {
                       painter: MapPainter(
                         camera: _camera,
                         tiles: _meshes,
+                        imagery: _imagery?.piecesFor(_camera, size) ?? const [],
                         onDrawn: (calls) => _drawCalls = calls,
                       ),
                       size: Size.infinite,
                     ),
                   ),
                 ),
+                if (widget.imagery != null)
+                  Positioned(
+                    right: 8,
+                    bottom: 6,
+                    child: _Attribution(widget.imagery!.attribution),
+                  ),
                 Positioned(
                   left: 12,
                   top: 12,
@@ -280,6 +321,41 @@ class _ReadoutState extends State<_Readout> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Turns a fetched tile into a picture.
+Future<ui.Image> _decode(Uint8List bytes) async {
+  final codec = await ui.instantiateImageCodec(bytes);
+  try {
+    return (await codec.getNextFrame()).image;
+  } finally {
+    codec.dispose();
+  }
+}
+
+/// The credit the imagery's licence asks for, which has to be on screen
+/// whenever the imagery is.
+class _Attribution extends StatelessWidget {
+  final String text;
+
+  const _Attribution(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xb3ffffff),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 11, color: Color(0xff333333)),
         ),
       ),
     );

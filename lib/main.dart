@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'src/data/map_loader.dart';
 import 'src/data/tile_cache.dart';
+import 'src/imagery/imagery_source.dart';
 import 'src/map/camera.dart';
 import 'src/map/map_view.dart';
 
@@ -80,6 +81,8 @@ class KupeApp extends StatelessWidget {
           ),
           initialCamera: camera,
           cache: cache,
+          imagery: linzAerial,
+          imageryFetch: httpFetch(contact: contact, concurrency: 6),
         ),
       ),
     );
