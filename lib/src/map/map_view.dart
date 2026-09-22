@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -8,8 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
 
 import '../data/map_loader.dart';
-import '../data/tile_cache.dart';
-import '../imagery/imagery_cache.dart';
 import '../imagery/imagery_layer.dart';
 import '../geometry/tile.dart';
 import '../render/map_painter.dart';
@@ -44,13 +43,16 @@ class MapView extends StatefulWidget {
   final Camera initialCamera;
 
   /// Where boxes already read are kept between runs.
-  final TileCache? cache;
+  final OsmTileCache? cache;
+
+  /// Where to remember the place the map was left.
+  final File? place;
 
   /// The layers of imagery to choose from, if any.
   final OsmImageryIndex? imageryIndex;
 
   /// Where imagery tiles are kept between runs.
-  final ImageryCache? imageryCache;
+  final OsmImageryCache? imageryCache;
 
   /// How imagery tiles are fetched.
   ///
@@ -65,6 +67,7 @@ class MapView extends StatefulWidget {
     required this.api,
     required this.initialCamera,
     this.cache,
+    this.place,
     this.imageryIndex,
     this.imageryCache,
     this.imageryFetch,
@@ -79,6 +82,7 @@ class _MapViewState extends State<MapView> {
   late final MapLoader _loader = MapLoader(
     api: widget.api,
     cache: widget.cache,
+    place: widget.place,
     onChanged: () {
       if (mounted) setState(() {});
     },
@@ -168,11 +172,13 @@ class _MapViewState extends State<MapView> {
     _imagery?.dispose();
     _source = wanted;
     _imagery = ImageryLayer<ui.Image>(
-      source: wanted,
-      fetch: widget.imageryFetch ?? httpFetch(),
+      tiles: OsmImageryTiles(
+        source: wanted,
+        fetch: widget.imageryFetch ?? httpFetch(),
+        cache: widget.imageryCache,
+      ),
       decode: _decode,
       release: (image) => image.dispose(),
-      cache: widget.imageryCache,
       onChanged: () {
         if (mounted) setState(() {});
       },

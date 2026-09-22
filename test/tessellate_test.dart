@@ -1,8 +1,7 @@
-import 'package:kupe/src/geometry/mercator.dart';
+import 'package:osm/osm.dart';
 import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/render/tessellate.dart';
 import 'package:kupe/src/style/style.dart';
-import 'package:osm/osm.dart';
 import 'package:test/test.dart';
 
 const _latitude = -36.85;

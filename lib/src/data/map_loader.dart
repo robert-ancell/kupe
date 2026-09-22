@@ -8,8 +8,8 @@ import '../geometry/tile.dart';
 import '../map/camera.dart';
 import '../render/tessellate.dart';
 import '../render/tile_mesh.dart';
+import 'last_place.dart';
 import 'map_store.dart';
-import 'tile_cache.dart';
 
 /// How far in the map has to be before anything is asked for.
 ///
@@ -73,7 +73,10 @@ class MapLoader {
   final OsmApi api;
 
   /// Where boxes already read are kept between runs, if anywhere.
-  final TileCache? cache;
+  final OsmTileCache? cache;
+
+  /// Where to remember the place the map was left, if anywhere.
+  final File? place;
 
   /// Everything read so far.
   final MapStore store = MapStore();
@@ -106,7 +109,12 @@ class MapLoader {
   final _reading = <TileId, Completer<void>>{};
 
   /// Creates a loader.
-  MapLoader({required this.api, required this.onChanged, this.cache});
+  MapLoader({
+    required this.api,
+    required this.onChanged,
+    this.cache,
+    this.place,
+  });
 
   /// Stops the loader waiting to try again, and gives up on anything still
   /// being read.
@@ -187,7 +195,10 @@ class MapLoader {
       }
     }
     _pump();
-    unawaited(cache?.saveCamera(camera) ?? Future<void>.value());
+    final remembering = place;
+    if (remembering != null) {
+      unawaited(LastPlace.write(remembering, camera));
+    }
   }
 
   /// Draws a box from what is held on disk.

@@ -5,9 +5,7 @@ import 'package:osm/osm.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'src/data/map_loader.dart';
-import 'src/data/tile_cache.dart';
-import 'src/imagery/imagery_cache.dart';
-import 'src/imagery/imagery_index.dart';
+import 'src/data/last_place.dart';
 import 'src/map/camera.dart';
 import 'src/map/map_view.dart';
 
@@ -16,6 +14,23 @@ import 'src/map/map_view.dart';
 /// They ask to be told what is calling and where to complain about it. This
 /// is the application, not the person using it; nothing about them is sent.
 const contact = 'kupe +https://github.com/robert-ancell/kupe';
+
+/// What to draw when the editor layer index cannot be read at all.
+///
+/// The entry for LINZ's aerial imagery of New Zealand, copied from the index,
+/// key and all: LINZ issued that key for OpenStreetMap editors to share, and
+/// has given OpenStreetMap written permission to trace the imagery.
+const fallbackImagery = OsmImagery(
+  id: 'LINZ_NZ_Aerial_Imagery',
+  name: 'LINZ NZ Aerial Imagery',
+  url:
+      'https://basemaps.linz.govt.nz/v1/tiles/aerial/WebMercatorQuad/'
+      '{zoom}/{x}/{y}.webp?api=d01egend5f8dv4zcbfj6z2t7rs3',
+  category: OsmImageryCategory.photo,
+  maximumZoom: 21,
+  attribution: 'Sourced from LINZ CC-BY 4.0',
+  best: true,
+);
 
 /// Where the map opens when there is nowhere it was left.
 const _somewhere = (latitude: -36.8485, longitude: 174.7633, zoom: 17.0);
@@ -38,33 +53,42 @@ Future<void> main(List<String> arguments) async {
   // and simply reads everything again each time.
   final imageryFetch = httpFetch(contact: contact, concurrency: 6);
 
-  TileCache? cache;
-  ImageryCache? imagery;
+  OsmTileCache? cache;
+  OsmImageryCache? imagery;
+  File? place;
   var index = const OsmImageryIndex([fallbackImagery]);
   try {
     final directory = await getApplicationCacheDirectory();
-    cache = await TileCache.open(Directory('${directory.path}/tiles'));
-    imagery = await ImageryCache.open(Directory('${directory.path}/imagery'));
-    index = await ImageryIndex.read(
+    cache = await OsmTileCache.open(Directory('${directory.path}/tiles'));
+    imagery = await OsmImageryCache.open(
+      Directory('${directory.path}/imagery'),
+    );
+    place = File('${directory.path}/last-place.json');
+    index = await OsmImageryIndexFile.read(
       file: File('${directory.path}/editor-layer-index.geojson'),
       fetch: imageryFetch,
+      fallback: const [fallbackImagery],
     );
   } on Exception {
     cache = null;
     imagery = null;
+    place = null;
   }
+
+  final left = place == null ? null : await LastPlace.read(place);
 
   runApp(
     KupeApp(
       camera:
           asked ??
-          cache?.camera ??
+          left ??
           Camera.at(
             latitude: _somewhere.latitude,
             longitude: _somewhere.longitude,
             zoom: _somewhere.zoom,
           ),
       cache: cache,
+      place: place,
       imageryCache: imagery,
       imageryIndex: index,
       imageryFetch: imageryFetch,
@@ -78,10 +102,13 @@ class KupeApp extends StatelessWidget {
   final Camera camera;
 
   /// Where boxes already read are kept between runs.
-  final TileCache? cache;
+  final OsmTileCache? cache;
+
+  /// Where the place the map was left is remembered.
+  final File? place;
 
   /// Where imagery tiles are kept between runs.
-  final ImageryCache? imageryCache;
+  final OsmImageryCache? imageryCache;
 
   /// The layers of imagery to choose from.
   final OsmImageryIndex? imageryIndex;
@@ -94,6 +121,7 @@ class KupeApp extends StatelessWidget {
     super.key,
     required this.camera,
     this.cache,
+    this.place,
     this.imageryCache,
     this.imageryIndex,
     this.imageryFetch,
@@ -111,6 +139,7 @@ class KupeApp extends StatelessWidget {
           ),
           initialCamera: camera,
           cache: cache,
+          place: place,
           imageryCache: imageryCache,
           imageryIndex: imageryIndex,
           imageryFetch: imageryFetch,

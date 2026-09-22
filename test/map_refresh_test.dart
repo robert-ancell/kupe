@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:kupe/src/data/map_loader.dart';
-import 'package:kupe/src/data/tile_cache.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
@@ -113,17 +112,17 @@ class _Api {
 
 /// Ages everything the cache holds so that it is worth checking, the way it
 /// would be on opening the editor the next day.
-Future<TileCache> _aged(Directory work) async {
+Future<OsmTileCache> _aged(Directory work) async {
   final index = File('${work.path}/index.json');
   final parsed = jsonDecode(await index.readAsString()) as Map<String, dynamic>;
   final long = DateTime.now()
-      .subtract(cacheFreshness * 2)
+      .subtract(osmTileCacheFreshness * 2)
       .millisecondsSinceEpoch;
   for (final tile in parsed['tiles'] as List) {
     (tile as Map<String, dynamic>)['at'] = long;
   }
   await index.writeAsString(jsonEncode(parsed));
-  return TileCache.open(work);
+  return OsmTileCache.open(work);
 }
 
 void main() {
@@ -138,8 +137,8 @@ void main() {
   });
 
   /// Reads a view into a cache and hands back the cache, aged.
-  Future<TileCache> fill(_Api server) async {
-    final cache = await TileCache.open(work);
+  Future<OsmTileCache> fill(_Api server) async {
+    final cache = await OsmTileCache.open(work);
     MapLoader(
       api: OsmApi(fetch: server.fetch),
       cache: cache,
@@ -151,7 +150,7 @@ void main() {
 
   test('does not check anything while what it holds is new', () async {
     final server = _Api();
-    final cache = await TileCache.open(work);
+    final cache = await OsmTileCache.open(work);
     final loader = MapLoader(
       api: OsmApi(fetch: server.fetch),
       cache: cache,

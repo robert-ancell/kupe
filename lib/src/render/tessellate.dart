@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:osm/osm.dart';
 
-import '../geometry/mercator.dart';
 import '../geometry/tile.dart';
 import '../style/style.dart';
 import 'stroke.dart';

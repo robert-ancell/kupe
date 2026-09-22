@@ -3,7 +3,6 @@ import 'dart:ui';
 
 import 'package:osm/osm.dart';
 
-import '../geometry/mercator.dart';
 import '../geometry/tile.dart';
 
 /// Where the map is being looked at from.

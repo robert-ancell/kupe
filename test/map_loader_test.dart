@@ -3,8 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:kupe/src/data/last_place.dart';
 import 'package:kupe/src/data/map_loader.dart';
-import 'package:kupe/src/data/tile_cache.dart';
 import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:osm/osm.dart';
@@ -61,7 +61,7 @@ class _Api {
   }
 }
 
-MapLoader _loaderOn(_Api server, {TileCache? cache}) => MapLoader(
+MapLoader _loaderOn(_Api server, {OsmTileCache? cache}) => MapLoader(
   api: OsmApi(fetch: server.fetch),
   cache: cache,
   onChanged: () {},
@@ -251,7 +251,7 @@ void main() {
     });
 
     test('keeps what it read for next time', () async {
-      final cache = await TileCache.open(work);
+      final cache = await OsmTileCache.open(work);
       final server = _Api();
       _loaderOn(server, cache: cache).look(_at(17), _size);
       await _drain();
@@ -259,14 +259,14 @@ void main() {
     });
 
     test('opens from disk without asking the API', () async {
-      final cache = await TileCache.open(work);
+      final cache = await OsmTileCache.open(work);
       final first = _Api();
       _loaderOn(first, cache: cache).look(_at(17), _size);
       await _drain();
       expect(first.asked, isNotEmpty);
 
       // A second run over the same place, with the cache still there.
-      final again = await TileCache.open(work);
+      final again = await OsmTileCache.open(work);
       final second = _Api();
       final loader = _loaderOn(second, cache: again);
       loader.look(_at(17), _size);
@@ -276,16 +276,20 @@ void main() {
     });
 
     test('remembers where the map was left', () async {
-      final cache = await TileCache.open(work);
-      _loaderOn(_Api(), cache: cache).look(_at(17), _size);
+      final place = File('${work.path}/place.json');
+      MapLoader(
+        api: OsmApi(fetch: _Api().fetch),
+        place: place,
+        onChanged: () {},
+      ).look(_at(17), _size);
       await _drain();
-      final again = await TileCache.open(work);
-      expect(again.camera, isNotNull);
-      expect(again.camera!.zoom, 17);
+      final left = await LastPlace.read(place);
+      expect(left, isNotNull);
+      expect(left!.zoom, 17);
     });
 
     test('reads a box again when its file will not open', () async {
-      final cache = await TileCache.open(work);
+      final cache = await OsmTileCache.open(work);
       final first = _Api();
       _loaderOn(first, cache: cache).look(_at(17), _size);
       await _drain();
@@ -297,7 +301,7 @@ void main() {
         }
       }
 
-      final again = await TileCache.open(work);
+      final again = await OsmTileCache.open(work);
       final second = _Api();
       final loader = _loaderOn(second, cache: again);
       loader.look(_at(17), _size);

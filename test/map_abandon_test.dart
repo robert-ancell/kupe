@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:kupe/src/data/map_loader.dart';
-import 'package:kupe/src/data/tile_cache.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
@@ -142,7 +141,7 @@ void main() {
   });
 
   test('keeps an answer that arrives after it was given up on', () async {
-    final cache = await TileCache.open(work);
+    final cache = await OsmTileCache.open(work);
     final server = _Held()..replyBegun = true;
     final loader = MapLoader(
       api: OsmApi(fetch: server.fetch),
@@ -165,7 +164,7 @@ void main() {
   });
 
   test('reads a kept box from disk rather than asking again', () async {
-    final cache = await TileCache.open(work);
+    final cache = await OsmTileCache.open(work);
     final server = _Held()..replyBegun = true;
     final loader = MapLoader(
       api: OsmApi(fetch: server.fetch),

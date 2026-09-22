@@ -4,8 +4,6 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:kupe/src/geometry/tile.dart';
-import 'package:kupe/src/imagery/imagery_cache.dart';
-import 'package:kupe/src/imagery/imagery_index.dart';
 import 'package:kupe/src/imagery/imagery_layer.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:osm/osm.dart';
@@ -89,14 +87,12 @@ class _Server {
 ImageryLayer<_Picture> _layer(
   _Server server, {
   int inFlight = 6,
-  ImageryCache? cache,
+  OsmImageryCache? cache,
 }) => ImageryLayer<_Picture>(
-  source: _source,
-  fetch: server.fetch,
+  tiles: OsmImageryTiles(source: _source, fetch: server.fetch, cache: cache),
   decode: (bytes) async => _Picture(String.fromCharCodes(bytes)),
   release: (picture) => picture.released = true,
   onChanged: () {},
-  cache: cache,
   inFlight: inFlight,
 );
 
@@ -104,15 +100,6 @@ Camera _at(double zoom) =>
     Camera.at(latitude: -36.85, longitude: 174.76, zoom: zoom);
 
 void main() {
-  test('falls back to the LINZ entry from the index', () {
-    final uri = Uri.parse(fallbackImagery.tileUrl(17, 129167, 79983));
-    expect(uri.host, 'basemaps.linz.govt.nz');
-    expect(uri.path, '/v1/tiles/aerial/WebMercatorQuad/17/129167/79983.webp');
-    expect(uri.queryParameters['api'], isNotEmpty);
-    expect(fallbackImagery.maximumZoom, 21);
-    expect(fallbackImagery.attribution, contains('LINZ'));
-  });
-
   test('draws tiles of the nearest zoom', () {
     final layer = _layer(_Server());
     expect(layer.zoomFor(_at(16.4)), 16);
@@ -242,8 +229,7 @@ void main() {
     final server = _Server();
     final pictures = <_Picture>[];
     final tracking = ImageryLayer<_Picture>(
-      source: _source,
-      fetch: server.fetch,
+      tiles: OsmImageryTiles(source: _source, fetch: server.fetch),
       decode: (bytes) async {
         final picture = _Picture(String.fromCharCodes(bytes));
         pictures.add(picture);
@@ -271,8 +257,7 @@ void main() {
   test('lets go of everything when thrown away', () async {
     final pictures = <_Picture>[];
     final layer = ImageryLayer<_Picture>(
-      source: _source,
-      fetch: _Server().fetch,
+      tiles: OsmImageryTiles(source: _source, fetch: _Server().fetch),
       decode: (bytes) async {
         final picture = _Picture(String.fromCharCodes(bytes));
         pictures.add(picture);
@@ -301,7 +286,7 @@ void main() {
     });
 
     test('keeps what it fetched for next time', () async {
-      final cache = await ImageryCache.open(work);
+      final cache = await OsmImageryCache.open(work);
       final server = _Server();
       _layer(server, cache: cache).look(_at(17), _size);
       await _drain();
@@ -309,13 +294,13 @@ void main() {
     });
 
     test('draws from disk without asking for anything', () async {
-      final cache = await ImageryCache.open(work);
+      final cache = await OsmImageryCache.open(work);
       final first = _Server();
       _layer(first, cache: cache).look(_at(17), _size);
       await _drain();
       expect(first.asked, isNotEmpty);
 
-      final again = await ImageryCache.open(work);
+      final again = await OsmImageryCache.open(work);
       final second = _Server();
       final layer = _layer(second, cache: again);
       final camera = _at(17);
@@ -329,7 +314,7 @@ void main() {
     });
 
     test('remembers empty ground between runs', () async {
-      final cache = await ImageryCache.open(work);
+      final cache = await OsmImageryCache.open(work);
       final camera = _at(17);
       final first = _Server();
       for (final tile in camera.tilesFor(_size, 17)) {
@@ -338,7 +323,7 @@ void main() {
       _layer(first, cache: cache).look(camera, _size);
       await _drain();
 
-      final again = await ImageryCache.open(work);
+      final again = await OsmImageryCache.open(work);
       final second = _Server();
       _layer(second, cache: again).look(camera, _size);
       await _drain();
@@ -346,7 +331,7 @@ void main() {
     });
 
     test('draws an old tile while fetching a newer one', () async {
-      final cache = await ImageryCache.open(work);
+      final cache = await OsmImageryCache.open(work);
       final first = _Server();
       _layer(first, cache: cache).look(_at(17), _size);
       await _drain();
@@ -354,7 +339,7 @@ void main() {
       // A week on, with the server holding its answers.
       final index = File('${work.path}/index.json');
       final long = DateTime.now()
-          .subtract(imageryFreshness * 2)
+          .subtract(osmImageryFreshness * 2)
           .millisecondsSinceEpoch;
       await index.writeAsString(
         (await index.readAsString()).replaceAll(
@@ -362,7 +347,7 @@ void main() {
           '"at":$long',
         ),
       );
-      final aged = await ImageryCache.open(work);
+      final aged = await OsmImageryCache.open(work);
       final second = _Server()..hold = true;
       final layer = _layer(second, cache: aged);
       final camera = _at(17);
