@@ -114,6 +114,7 @@ void main() {
 
   _nodes();
   _refreshing();
+  _afterDeleting();
 
   test('picks across the seam between tiles', () {
     // A way drawn into the tile next door is still under the pointer.
@@ -306,5 +307,28 @@ void _refreshing() {
       final picked = pickAt(_nodeOn(0), _camera, _size, _road())!;
       expect(refreshed(picked, MapStore(), OsmEdits()), isNull);
     });
+  });
+}
+
+void _afterDeleting() {
+  test('takes hold of a line after a node is taken out of it', () {
+    final store = _road(count: 5);
+    final edits = OsmEdits();
+    final way = store.ways[1]!;
+
+    // Take out a node in the middle of it.
+    final node = store.nodes[102]!;
+    edits.deleteNode(node, from: [way]);
+    expect(edits.changedWay(1)!.nodeIds, [100, 101, 103, 104]);
+
+    // The line is still there to take hold of.
+    final picked = pickAt(
+      _nodeOn(1) + const Offset(20, 0),
+      _camera,
+      _size,
+      store,
+      edits: edits,
+    );
+    expect(picked, isNotNull);
   });
 }

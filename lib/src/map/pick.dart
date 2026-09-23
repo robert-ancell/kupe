@@ -331,13 +331,16 @@ List<TileId> _tilesAround(Offset world, double reach, int zoom) {
 /// From where the nodes are now, which is where they have been moved to if
 /// they have been moved at all.
 List<double>? worldPointsOf(OsmWay way, MapStore store, [OsmEdits? edits]) {
-  final points = List<double>.filled(way.nodeIds.length * 2, 0);
-  for (var i = 0; i < way.nodeIds.length; i++) {
-    final id = way.nodeIds[i];
+  final points = <double>[];
+  for (final id in way.nodeIds) {
+    // A node taken off the map is left out rather than taken as a hole in
+    // the line: a way that still names one has not caught up yet, and it is
+    // better drawn short than not at all.
+    if (edits?.isGone(OsmElementType.node, id) ?? false) continue;
     final node = edits?.movedNode(id) ?? store.nodes[id];
     if (node == null) return null;
-    points[i * 2] = Mercator.x(node.longitude);
-    points[i * 2 + 1] = Mercator.y(node.latitude);
+    points.add(Mercator.x(node.longitude));
+    points.add(Mercator.y(node.latitude));
   }
   return points;
 }

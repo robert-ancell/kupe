@@ -13,6 +13,7 @@ import 'package:osm/osm.dart';
 import '../data/map_loader.dart';
 import '../edit/edited_geometry.dart';
 import '../edit/insert.dart';
+import '../edit/ways.dart';
 import '../imagery/imagery_layer.dart';
 import '../geometry/tile.dart';
 import '../render/map_painter.dart';
@@ -369,7 +370,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Only while the map is close enough to edit: further out the lines are
   /// too fine to point at, and there is nothing to be done with one anyway.
   void _hover(Offset at) {
-    if (_drawing.isNotEmpty) setState(() => _pointerAt = at);
+    // What a click would draw follows the pointer, so where it is has to be
+    // known before anything has been drawn at all.
+    if (_tool != MapTool.browse) setState(() => _pointerAt = at);
     final found = _tooFarToEdit
         ? null
         : pickAt(
@@ -548,10 +551,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     for (final picked in nodes) {
       _edits.deleteNode(
         picked.node,
-        from: [
-          for (final id in _loader.store.waysUsing(picked.id))
-            _edits.changedWay(id) ?? _loader.store.ways[id]!,
-        ],
+        from: waysUsingNode(picked.id, _loader.store, _edits),
       );
     }
     setState(_selected.clear);
@@ -616,16 +616,38 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   List<double> _ghost(Size size) {
     final at = _pointerAt;
     if (_drawing.isEmpty || at == null) return const [];
-    final node =
-        _edits.movedNode(_drawing.last) ?? _loader.store.nodes[_drawing.last];
-    if (node == null) return const [];
     final world = _camera.toWorld(at, size);
+    final last = _pointOf(_drawing.last);
+    if (last == null) return const [];
+    final first = _pointOf(_drawing.first);
+
     return [
-      Mercator.x(node.longitude),
-      Mercator.y(node.latitude),
+      ...last,
       world.dx,
       world.dy,
+      // A shape closes back to where it started, and that line has not been
+      // drawn either, so it is shown the same way.
+      if (_tool == MapTool.addArea && _drawing.length > 1 && first != null) ...[
+        world.dx,
+        world.dy,
+        ...first,
+      ],
     ];
+  }
+
+  /// Where a node would be put down by the next click, if one would.
+  (double, double)? _ghostNode(Size size) {
+    final at = _pointerAt;
+    if (at == null || _tool == MapTool.browse) return null;
+    final world = _camera.toWorld(at, size);
+    return (world.dx, world.dy);
+  }
+
+  /// Where a node is, in world coordinates.
+  List<double>? _pointOf(int id) {
+    final node = _edits.movedNode(id) ?? _loader.store.nodes[id];
+    if (node == null) return null;
+    return [Mercator.x(node.longitude), Mercator.y(node.latitude)];
   }
 
   /// Whether a click landed on the node with [id].
@@ -700,9 +722,10 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Takes up a tool, or puts it down again if it was already in hand.
   void _chooseTool(MapTool tool) {
     if (_tooFarToEdit) return;
+    if (_drawing.isNotEmpty) _abandonLine();
     setState(() {
-      _drawing.clear();
       _tool = _tool == tool ? MapTool.browse : tool;
+      if (_tool == MapTool.browse) _pointerAt = null;
     });
   }
 
@@ -885,6 +908,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                                   closing: _tool == MapTool.addArea,
                                 ),
                                 ghost: _ghost(size),
+                                ghostNode: _ghostNode(size),
                                 selection: _selected.values.toList(),
                                 highlight: _hovered,
                                 onDrawn: (calls) => _drawCalls = calls,
