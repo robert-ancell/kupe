@@ -59,6 +59,10 @@ class TessellationReport {
 /// changes what lines have to look like but leaves filled shapes alone, so a
 /// rebuild on zoom only has to redo the lines.
 ///
+/// [waysThrough] says how many ways run through a node, which decides where
+/// a line is marked as able to be taken hold of. Without it only what is in
+/// [data] is counted, which misses ways meeting across the edge of a box.
+///
 /// Pass [into] to put everything in one named tile rather than in whichever
 /// tile it falls in. Data read a box at a time arrives already divided, and
 /// keeping each box's share whole is what stops two boxes from both claiming
@@ -70,7 +74,9 @@ TessellationReport tessellate(
   bool fills = true,
   bool lines = true,
   TileId? into,
+  int Function(int nodeId)? waysThrough,
 }) {
+  final through = waysThrough ?? _countWithin(data);
   final builders = <TileId, _TileBuilder>{};
   var drawn = 0;
   var skipped = 0;
@@ -92,6 +98,7 @@ TessellationReport tessellate(
         fills,
         lines,
         into,
+        through,
       ),
       OsmRelation() when fills => _relation(
         element,
@@ -134,6 +141,7 @@ _Outcome _way(
   bool fills,
   bool lines,
   TileId? into,
+  int Function(int nodeId) waysThrough,
 ) {
   final asArea = way.isClosed && enclosesArea(way.tags);
   if (asArea ? !fills : !lines) return _Outcome.skipped;
@@ -157,6 +165,14 @@ _Outcome _way(
   final points = _project(nodes, tile);
   for (final layer in layers) {
     builder.stroke(layer, points);
+  }
+
+  // The points this line can be taken hold of without being selected first:
+  // where it starts and stops, and where other lines meet it.
+  for (var i = 0; i < way.nodeIds.length; i++) {
+    final ends = i == 0 || i == way.nodeIds.length - 1;
+    if (!ends && waysThrough(way.nodeIds[i]) < 2) continue;
+    builder.point(points[i * 2], points[i * 2 + 1]);
   }
   return _Outcome.drawn;
 }
@@ -220,6 +236,21 @@ List<double> _project(List<OsmNode> nodes, TileId tile) {
   return out;
 }
 
+/// How many ways in a subset run through each node.
+///
+/// A fallback for callers with nothing better. It only sees what it is given,
+/// so two roads meeting just over the edge of a box look like two roads that
+/// do not meet.
+int Function(int) _countWithin(OsmSubset data) {
+  final counts = <int, int>{};
+  for (final way in data.ways.values) {
+    for (final id in way.nodeIds.toSet()) {
+      counts[id] = (counts[id] ?? 0) + 1;
+    }
+  }
+  return (id) => counts[id] ?? 0;
+}
+
 /// Collects the triangles of one tile, keeping each layer's in its own list
 /// so that the whole layer can go to the GPU in one call.
 class _TileBuilder {
@@ -230,15 +261,32 @@ class _TileBuilder {
 
   _TileBuilder(this.tile, this.pixelsPerTile);
 
+  /// How many tile units a pixel covers, which is how a width on screen
+  /// becomes a width in the triangles.
+  double get unitsPerPixel => tileExtent / pixelsPerTile;
+
   void fill(int layer, List<double> outer, List<List<double>> inners) {
     final triangles = triangulate(outer, holes: inners);
     if (triangles == null) return;
     (_fills[layer] ??= <double>[]).addAll(triangles);
   }
 
+  /// Marks a point that can be taken hold of.
+  void point(double x, double y) {
+    for (final layer in pointLayers) {
+      final triangles = disc(
+        x,
+        y,
+        mapStyle[layer].width * unitsPerPixel,
+        unitsPerPixel: unitsPerPixel,
+      );
+      if (triangles.isEmpty) continue;
+      (_lines[layer] ??= <double>[]).addAll(triangles);
+    }
+  }
+
   void stroke(int layer, List<double> points) {
     final style = mapStyle[layer];
-    final unitsPerPixel = tileExtent / pixelsPerTile;
     final triangles = strokePolyline(
       points,
       style.width * unitsPerPixel,

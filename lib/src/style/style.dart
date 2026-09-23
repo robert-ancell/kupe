@@ -7,6 +7,9 @@ enum LayerKind {
 
   /// A stroked line, such as a road or a stream.
   line,
+
+  /// A disc at a point, such as the end of a line.
+  point,
 }
 
 /// One drawn layer of the map.
@@ -89,7 +92,27 @@ const mapStyle = <StyleLayer>[
   ),
   StyleLayer(id: 'minor', kind: LayerKind.line, colour: 0xffffffff, width: 3),
   StyleLayer(id: 'major', kind: LayerKind.line, colour: 0xfff8d98a, width: 5),
+  // Last, so that the points a line can be taken hold of by are on top of
+  // every line, including the ones they join.
+  StyleLayer(
+    id: 'vertex-edge',
+    kind: LayerKind.point,
+    colour: 0xff44505c,
+    width: 7,
+  ),
+  StyleLayer(
+    id: 'vertex',
+    kind: LayerKind.point,
+    colour: 0xffffffff,
+    width: 4.4,
+  ),
 ];
+
+/// The layers a point is drawn as, as indices into [mapStyle].
+///
+/// A disc with an edge around it, so that it shows up over a light road and
+/// over a dark photograph alike.
+final pointLayers = [layerIndex('vertex-edge'), layerIndex('vertex')];
 
 /// The index of the layer with the given id.
 int layerIndex(String id) => mapStyle.indexWhere((layer) => layer.id == id);

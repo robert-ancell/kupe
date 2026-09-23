@@ -52,12 +52,14 @@ TessellationReport _build(
   double pixelsPerTile = _pixelsPerTile,
   bool fills = true,
   bool lines = true,
+  int Function(int nodeId)? waysThrough,
 }) => tessellate(
   data,
   zoom: zoom,
   pixelsPerTile: pixelsPerTile,
   fills: fills,
   lines: lines,
+  waysThrough: waysThrough,
 );
 
 void main() {
@@ -172,5 +174,121 @@ void main() {
     final tile = report.tiles.values.single;
     expect(tile.fills.map((m) => m.layer), contains(layerIndex('building')));
     expect(tile.lines, isEmpty);
+  });
+
+  group('points that can be taken hold of', () {
+    /// A road of [count] nodes, and optionally a second road meeting it at
+    /// the node [crossingAt] along the way.
+    OsmSubset road({int count = 4, int? crossingAt}) {
+      final nodes = <int, OsmNode>{};
+      for (var i = 0; i < count; i++) {
+        nodes[100 + i] = OsmNode(
+          id: 100 + i,
+          latitude: _latitude,
+          longitude: 174.76 + i * 0.0002,
+        );
+      }
+      final ways = <int, OsmWay>{
+        1: OsmWay(
+          id: 1,
+          nodeIds: [for (var i = 0; i < count; i++) 100 + i],
+          tags: const {'highway': 'residential'},
+        ),
+      };
+      if (crossingAt != null) {
+        nodes[200] = OsmNode(
+          id: 200,
+          latitude: _latitude - 0.0002,
+          longitude: 174.76 + crossingAt * 0.0002,
+        );
+        ways[2] = OsmWay(
+          id: 2,
+          nodeIds: [100 + crossingAt, 200],
+          tags: const {'highway': 'footway'},
+        );
+      }
+      return OsmSubset(
+        matches: ways.values.toList(),
+        nodes: nodes,
+        ways: ways,
+        relations: const {},
+      );
+    }
+
+    /// How many discs were drawn, from the area of the marks divided by the
+    /// area of one.
+    int marksIn(TessellationReport report) {
+      var area = 0.0;
+      for (final tile in report.tiles.values) {
+        for (final mesh in tile.lines) {
+          if (mesh.layer != layerIndex('vertex')) continue;
+          final t = mesh.triangles;
+          for (var i = 0; i < t.length; i += 6) {
+            area +=
+                ((t[i + 2] - t[i]) * (t[i + 5] - t[i + 1]) -
+                        (t[i + 4] - t[i]) * (t[i + 3] - t[i + 1]))
+                    .abs() /
+                2;
+          }
+        }
+      }
+      final units =
+          mapStyle[layerIndex('vertex')].width /
+          2 *
+          tileExtent /
+          _pixelsPerTile;
+      // A little under a circle, being made of straight pieces.
+      return (area / (3.0 * units * units)).round();
+    }
+
+    test('marks where a line starts and stops', () {
+      expect(marksIn(_build(road())), 2);
+    });
+
+    test('marks where lines meet as well', () {
+      // Two ends of the road, two ends of the footpath, and the node they
+      // share counts once for each of them.
+      expect(marksIn(_build(road(crossingAt: 1))), greaterThan(2));
+    });
+
+    test('leaves the middle of a line unmarked', () {
+      // Four nodes, two of them ends: the two in between are not marked
+      // until the line is selected, which the map draws for itself.
+      expect(marksIn(_build(road(count: 4))), 2);
+      expect(marksIn(_build(road(count: 8))), 2);
+    });
+
+    test('marks nothing on a filled shape', () {
+      final nodes = {
+        1: const OsmNode(id: 1, latitude: -36.85, longitude: 174.7600),
+        2: const OsmNode(id: 2, latitude: -36.85, longitude: 174.7602),
+        3: const OsmNode(id: 3, latitude: -36.8502, longitude: 174.7602),
+      };
+      const way = OsmWay(
+        id: 10,
+        nodeIds: [1, 2, 3, 1],
+        tags: {'building': 'yes'},
+      );
+      final report = _build(
+        OsmSubset(
+          matches: const [way],
+          nodes: nodes,
+          ways: const {10: way},
+          relations: const {},
+        ),
+      );
+      expect(marksIn(report), 0);
+    });
+
+    test('takes what runs through a node from the caller', () {
+      // The caller knows about ways in other boxes; the subset does not.
+      final report = _build(road(), waysThrough: (id) => id == 101 ? 2 : 1);
+      expect(marksIn(report), 3);
+    });
+
+    test('marks the same size on screen at any zoom', () {
+      final near = marksIn(_build(road(), zoom: 19));
+      expect(marksIn(_build(road(), zoom: 14)), near);
+    });
   });
 }

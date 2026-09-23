@@ -256,3 +256,14 @@ void _quad(
 ) {
   out.addAll([ax, ay, bx, by, cx, cy, ax, ay, cx, cy, dx, dy]);
 }
+
+/// Builds the triangles that draw a disc of [width] across at a point.
+///
+/// What the end of a line is marked with. Cut finely enough that it reads as
+/// round at the size it is drawn, which for something a few pixels across is
+/// not many pieces at all.
+Float32List disc(double x, double y, double width, {double unitsPerPixel = 1}) {
+  final out = <double>[];
+  _fan(out, x, y, width / 2, 0, 2 * math.pi, unitsPerPixel);
+  return Float32List.fromList(out);
+}

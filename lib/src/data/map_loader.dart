@@ -345,6 +345,7 @@ class MapLoader {
         pixelsPerTile: wanted,
         fills: false,
         into: mesh.id,
+        waysThrough: store.waysThrough,
       );
       _built[mesh.id] = mesh.withLines(
         report.tiles[mesh.id]?.lines ?? const [],
@@ -506,6 +507,9 @@ class MapLoader {
       zoom: tile.zoom,
       pixelsPerTile: camera?.pixelsPerTile(tile.zoom) ?? tilePixels,
       into: tile,
+      // From everything held rather than everything in this box, so that two
+      // roads meeting just over its edge are still a junction.
+      waysThrough: store.waysThrough,
     );
     final mesh = report.tiles[tile];
     if (mesh != null) _built[tile] = mesh;
