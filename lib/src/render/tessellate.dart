@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:osm/osm.dart';
@@ -21,7 +20,7 @@ class TessellationReport {
   final int skipped;
 
   /// How many elements could not be built, almost always a way whose nodes
-  /// run off the edge of the data.
+  /// run off the edge of the file.
   final int incomplete;
 
   /// Creates a report.
@@ -40,22 +39,25 @@ class TessellationReport {
   int get bytes => vertices * 8;
 
   /// How many draw calls a frame showing every tile would take.
-  int get drawCalls =>
-      tiles.values.fold(0, (total, tile) => total + tile.layers.length);
+  int get drawCalls => tiles.values.fold(
+    0,
+    (total, tile) => total + tile.fills.length + tile.lines.length,
+  );
 }
 
 /// Turns a dataset into the triangles that draw it.
 ///
 /// Geometry is grouped into tiles at [zoom] so that it can be culled and
-/// thrown away in pieces.
-///
-/// Everything is measured in ground units, lines included, so a tile is
-/// right at every zoom it is ever drawn at and is never built a second time.
-/// The canvas scale does the rest.
+/// thrown away in pieces. [pixelsPerTile] is how wide a tile is expected to
+/// be on screen, which sets how wide lines are built.
 ///
 /// Elements are put in the tile holding their first node and are not cut at
 /// the tile edge, so a tile's geometry can reach beyond it. That costs some
 /// precision when culling and saves having to clip every shape.
+///
+/// Set [fills] or [lines] to false to build only one of the two. Zooming
+/// changes what lines have to look like but leaves filled shapes alone, so a
+/// rebuild on zoom only has to redo the lines.
 ///
 /// Pass [into] to put everything in one named tile rather than in whichever
 /// tile it falls in. Data read a box at a time arrives already divided, and
@@ -64,6 +66,9 @@ class TessellationReport {
 TessellationReport tessellate(
   OsmSubset data, {
   required int zoom,
+  required double pixelsPerTile,
+  bool fills = true,
+  bool lines = true,
   TileId? into,
 }) {
   final builders = <TileId, _TileBuilder>{};
@@ -78,9 +83,25 @@ TessellationReport tessellate(
     }
 
     final built = switch (element) {
-      OsmWay() => _way(element, data, builders, zoom, into),
-      OsmRelation() => _relation(element, data, builders, zoom, into),
-      OsmNode() => _Outcome.skipped,
+      OsmWay() => _way(
+        element,
+        data,
+        builders,
+        zoom,
+        pixelsPerTile,
+        fills,
+        lines,
+        into,
+      ),
+      OsmRelation() when fills => _relation(
+        element,
+        data,
+        builders,
+        zoom,
+        pixelsPerTile,
+        into,
+      ),
+      _ => _Outcome.skipped,
     };
     switch (built) {
       case _Outcome.drawn:
@@ -109,9 +130,13 @@ _Outcome _way(
   OsmSubset data,
   Map<TileId, _TileBuilder> builders,
   int zoom,
+  double pixelsPerTile,
+  bool fills,
+  bool lines,
   TileId? into,
 ) {
   final asArea = way.isClosed && enclosesArea(way.tags);
+  if (asArea ? !fills : !lines) return _Outcome.skipped;
   final layers = asArea ? fillLayersFor(way.tags) : lineLayersFor(way.tags);
   if (layers.isEmpty) return _Outcome.skipped;
 
@@ -121,11 +146,14 @@ _Outcome _way(
   if (asArea) {
     final area = data.areaOf(way);
     if (area == null) return _Outcome.incomplete;
-    return _fill(area, layers, builders, zoom, into);
+    return _fill(area, layers, builders, zoom, pixelsPerTile, into);
   }
 
   final tile = into ?? _tileOf(nodes.first, zoom);
-  final builder = builders.putIfAbsent(tile, () => _TileBuilder(tile));
+  final builder = builders.putIfAbsent(
+    tile,
+    () => _TileBuilder(tile, pixelsPerTile),
+  );
   final points = _project(nodes, tile);
   for (final layer in layers) {
     builder.stroke(layer, points);
@@ -138,6 +166,7 @@ _Outcome _relation(
   OsmSubset data,
   Map<TileId, _TileBuilder> builders,
   int zoom,
+  double pixelsPerTile,
   TileId? into,
 ) {
   if (relation.tags['type'] != 'multipolygon') return _Outcome.skipped;
@@ -146,7 +175,7 @@ _Outcome _relation(
 
   final area = data.areaOf(relation);
   if (area == null) return _Outcome.incomplete;
-  return _fill(area, layers, builders, zoom, into);
+  return _fill(area, layers, builders, zoom, pixelsPerTile, into);
 }
 
 _Outcome _fill(
@@ -154,6 +183,7 @@ _Outcome _fill(
   List<int> layers,
   Map<TileId, _TileBuilder> builders,
   int zoom,
+  double pixelsPerTile,
   TileId? into,
 ) {
   if (area.polygons.isEmpty) return _Outcome.incomplete;
@@ -161,7 +191,10 @@ _Outcome _fill(
   for (final polygon in area.polygons) {
     if (polygon.outer.isEmpty) continue;
     final tile = into ?? _tileOf(polygon.outer.first, zoom);
-    final builder = builders.putIfAbsent(tile, () => _TileBuilder(tile));
+    final builder = builders.putIfAbsent(
+      tile,
+      () => _TileBuilder(tile, pixelsPerTile),
+    );
     final outer = _project(polygon.outer, tile);
     final inners = [for (final inner in polygon.inners) _project(inner, tile)];
     for (final layer in layers) {
@@ -191,59 +224,44 @@ List<double> _project(List<OsmNode> nodes, TileId tile) {
 /// so that the whole layer can go to the GPU in one call.
 class _TileBuilder {
   final TileId tile;
-  final _layers = <int, List<double>>{};
+  final double pixelsPerTile;
+  final _fills = <int, List<double>>{};
+  final _lines = <int, List<double>>{};
 
-  /// How many tile units a metre of ground covers here.
-  ///
-  /// Mercator stretches distances away from the equator, so a metre is more
-  /// tile units in Invercargill than in Auckland. Taken at the middle of the
-  /// tile, across which the difference is far under a pixel.
-  final double unitsPerMetre;
-
-  /// How many tile units a pixel covers at the closest the map is drawn.
-  ///
-  /// Only anything that has to approximate a curve needs this, and it is the
-  /// finest case rather than the current one because the tile is built once.
-  final double unitsPerPixel;
-
-  _TileBuilder(this.tile)
-    : unitsPerMetre =
-          tileExtent /
-          (tile.size *
-              Mercator.metresPerUnit(
-                Mercator.latitude(tile.worldY + tile.size / 2),
-              )),
-      unitsPerPixel =
-          tileExtent /
-          (tilePixels * math.pow(2, maximumZoom - tile.zoom).toDouble());
+  _TileBuilder(this.tile, this.pixelsPerTile);
 
   void fill(int layer, List<double> outer, List<List<double>> inners) {
     final triangles = triangulate(outer, holes: inners);
     if (triangles == null) return;
-    (_layers[layer] ??= <double>[]).addAll(triangles);
+    (_fills[layer] ??= <double>[]).addAll(triangles);
   }
 
   void stroke(int layer, List<double> points) {
     final style = mapStyle[layer];
+    final unitsPerPixel = tileExtent / pixelsPerTile;
     final triangles = strokePolyline(
       points,
-      style.width * unitsPerMetre,
+      style.width * unitsPerPixel,
       cap: style.cap,
       join: style.join,
       unitsPerPixel: unitsPerPixel,
     );
     if (triangles.isEmpty) return;
-    (_layers[layer] ??= <double>[]).addAll(triangles);
+    (_lines[layer] ??= <double>[]).addAll(triangles);
   }
 
-  TileMesh build() {
-    final order = _layers.keys.toList()..sort();
-    return TileMesh(
-      id: tile,
-      layers: [
-        for (final layer in order)
-          LayerMesh(layer, Float32List.fromList(_layers[layer]!)),
-      ],
-    );
+  TileMesh build() => TileMesh(
+    id: tile,
+    pixelsPerTile: pixelsPerTile,
+    fills: _meshes(_fills),
+    lines: _meshes(_lines),
+  );
+
+  static List<LayerMesh> _meshes(Map<int, List<double>> layers) {
+    final order = layers.keys.toList()..sort();
+    return [
+      for (final layer in order)
+        LayerMesh(layer, Float32List.fromList(layers[layer]!)),
+    ];
   }
 }

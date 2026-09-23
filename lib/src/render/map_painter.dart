@@ -20,24 +20,45 @@ class GpuTileMesh {
   /// Which tile this covers.
   final TileId id;
 
-  /// The uploaded layers, paired with their index in the style.
-  final List<(int, ui.Vertices)> layers;
+  /// The uploaded filled layers, paired with their index in the style.
+  final List<(int, ui.Vertices)> fills;
 
-  GpuTileMesh._(this.id, this.layers);
+  /// The uploaded stroked layers, paired with their index in the style.
+  ///
+  /// Replaced when the map has been zoomed far enough that the widths they
+  /// were built at are no longer right. The fills beside them are not: they
+  /// cover the same ground at any zoom.
+  List<(int, ui.Vertices)> lines;
+
+  GpuTileMesh._(this.id, this.fills, this.lines);
 
   /// Uploads [mesh], skipping any layer with nothing in it.
-  factory GpuTileMesh.of(TileMesh mesh) => GpuTileMesh._(mesh.id, [
-    for (final layer in mesh.layers)
-      if (layer.triangles.isNotEmpty)
-        (
-          layer.layer,
-          ui.Vertices.raw(ui.VertexMode.triangles, layer.triangles),
-        ),
-  ]);
+  factory GpuTileMesh.of(TileMesh mesh) =>
+      GpuTileMesh._(mesh.id, _upload(mesh.fills), _upload(mesh.lines));
+
+  /// Replaces the stroked layers with the ones in [mesh], leaving the fills
+  /// where they are.
+  void restroke(TileMesh mesh) {
+    for (final (_, vertices) in lines) {
+      vertices.dispose();
+    }
+    lines = _upload(mesh.lines);
+  }
+
+  static List<(int, ui.Vertices)> _upload(List<LayerMesh> layers) {
+    return <(int, ui.Vertices)>[
+      for (final layer in layers)
+        if (layer.triangles.isNotEmpty)
+          (
+            layer.layer,
+            ui.Vertices.raw(ui.VertexMode.triangles, layer.triangles),
+          ),
+    ];
+  }
 
   /// Releases the uploaded triangles.
   void dispose() {
-    for (final (_, vertices) in layers) {
+    for (final (_, vertices) in [...fills, ...lines]) {
       vertices.dispose();
     }
   }
@@ -139,17 +160,8 @@ class MapPainter extends CustomPainter {
     for (var layer = 0; layer < mapStyle.length; layer++) {
       final paint = paints[layer];
       for (final tile in tiles) {
-        for (final (index, vertices) in tile.layers) {
-          if (index != layer) continue;
-          final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
-          final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
-          canvas.save();
-          canvas.translate(origin.dx, origin.dy);
-          canvas.scale(scale, scale);
-          canvas.drawVertices(vertices, BlendMode.srcOver, paint);
-          canvas.restore();
-          calls += 1;
-        }
+        calls += _draw(canvas, size, tile, tile.fills, layer, paint);
+        calls += _draw(canvas, size, tile, tile.lines, layer, paint);
       }
     }
     // The nodes of a selected line are shown as it is selected, which is
@@ -164,6 +176,31 @@ class MapPainter extends CustomPainter {
       calls += 1;
     }
     onDrawn?.call(calls);
+  }
+
+  /// Draws whichever of [uploaded] belongs to [layer], and says how many
+  /// calls that took.
+  int _draw(
+    Canvas canvas,
+    Size size,
+    GpuTileMesh tile,
+    List<(int, ui.Vertices)> uploaded,
+    int layer,
+    Paint paint,
+  ) {
+    var calls = 0;
+    for (final (index, vertices) in uploaded) {
+      if (index != layer) continue;
+      final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
+      final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
+      canvas.save();
+      canvas.translate(origin.dx, origin.dy);
+      canvas.scale(scale, scale);
+      canvas.drawVertices(vertices, BlendMode.srcOver, paint);
+      canvas.restore();
+      calls += 1;
+    }
+    return calls;
   }
 
   /// Draws what has been picked out, whether pointed at or selected.

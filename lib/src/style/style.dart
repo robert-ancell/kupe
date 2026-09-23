@@ -24,13 +24,12 @@ class StyleLayer {
   /// The colour to draw it in, as 0xAARRGGBB.
   final int colour;
 
-  /// For a line, how wide the thing it draws is on the ground, in metres.
+  /// For a line, how wide to draw it in pixels.
   ///
-  /// Not a width on screen. A road is as wide as the road is, so it covers
-  /// the ground it covers at every zoom, the same as the buildings beside it.
-  /// Zoomed out that makes it thin, which is the honest thing for an editor
-  /// to show: a map viewer keeps roads legible at a glance, an editor shows
-  /// what is there.
+  /// On screen rather than on the ground. These lines are not there to show
+  /// what a road looks like, which is what the imagery under them is for.
+  /// They are what is taken hold of and moved, so they have to stay the same
+  /// size to point at however far the map is zoomed.
   final double width;
 
   /// For a line, how to finish its ends.
@@ -64,40 +63,31 @@ class StyleLayer {
 /// dark line with a narrower light one over it, and junctions read correctly
 /// because every casing in the map is already down before any fill goes on.
 ///
-/// Line widths are metres of ground, so a carriageway can be compared against
-/// the imagery under it and against the buildings beside it.
-///
-/// They are drawn narrower than the thing itself. A road drawn its full width
-/// hides the road in the photograph under it, which is the one thing worth
-/// seeing while tracing; drawn down the middle of it, both are there at once.
-/// A casing is a metre wider than the line it outlines.
+/// Line widths are pixels, and thin ones: over imagery a line is a handle on
+/// what is underneath rather than a drawing of it, and a wide one hides the
+/// road in the photograph, which is the thing being traced.
 const mapStyle = <StyleLayer>[
   StyleLayer(id: 'earth', kind: LayerKind.fill, colour: 0xfff2efe9),
   StyleLayer(id: 'green', kind: LayerKind.fill, colour: 0xffc8e6a0),
   StyleLayer(id: 'sand', kind: LayerKind.fill, colour: 0xfff0e5c8),
   StyleLayer(id: 'water', kind: LayerKind.fill, colour: 0xffa5c9e8),
   StyleLayer(id: 'building', kind: LayerKind.fill, colour: 0xffd6cec4),
-  StyleLayer(
-    id: 'stream',
-    kind: LayerKind.line,
-    colour: 0xffa5c9e8,
-    width: 1.5,
-  ),
-  StyleLayer(id: 'path', kind: LayerKind.line, colour: 0xffb08050, width: 0.8),
-  StyleLayer(id: 'rail', kind: LayerKind.line, colour: 0xff9a9a9a, width: 1.5),
+  StyleLayer(id: 'stream', kind: LayerKind.line, colour: 0xffa5c9e8, width: 2),
+  StyleLayer(id: 'path', kind: LayerKind.line, colour: 0xffb08050, width: 1.5),
+  StyleLayer(id: 'rail', kind: LayerKind.line, colour: 0xff9a9a9a, width: 2),
   StyleLayer(
     id: 'minor-casing',
     kind: LayerKind.line,
     colour: 0xffcfcabb,
-    width: 3.6,
+    width: 5,
   ),
   StyleLayer(
     id: 'major-casing',
     kind: LayerKind.line,
     colour: 0xffc0a878,
-    width: 6,
+    width: 7,
   ),
-  StyleLayer(id: 'minor', kind: LayerKind.line, colour: 0xffffffff, width: 2.6),
+  StyleLayer(id: 'minor', kind: LayerKind.line, colour: 0xffffffff, width: 3),
   StyleLayer(id: 'major', kind: LayerKind.line, colour: 0xfff8d98a, width: 5),
 ];
 
