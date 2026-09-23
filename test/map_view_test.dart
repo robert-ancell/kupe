@@ -564,8 +564,9 @@ void main() {
       final end = endOfRoad(tester);
 
       await _click(tester, end);
-      expect(_painterIn(tester).selection.single, isA<PickedNode>());
-      expect(find.textContaining('Node '), findsOneWidget);
+      final picked = _painterIn(tester).selection.single;
+      expect(picked, isA<PickedNode>());
+      expect(find.text('Node ${picked.id}'), findsOneWidget);
     });
 
     testWidgets('takes a node along the middle once the line is taken', (
@@ -806,13 +807,13 @@ void main() {
 
     testWidgets('offers a node and a line to add', (tester) async {
       await openOver(tester);
-      expect(find.text('Node'), findsOneWidget);
-      expect(find.text('Line'), findsOneWidget);
+      expect(find.text('Node 1'), findsOneWidget);
+      expect(find.text('Line 2'), findsOneWidget);
     });
 
     testWidgets('puts a node down and takes hold of it', (tester) async {
       await openOver(tester);
-      await tester.tap(find.text('Node'));
+      await tester.tap(find.text('Node 1'));
       await tester.pump();
 
       await _click(tester, const Offset(600, 500));
@@ -824,7 +825,7 @@ void main() {
 
     testWidgets('draws a line a click at a time', (tester) async {
       await openOver(tester);
-      await tester.tap(find.text('Line'));
+      await tester.tap(find.text('Line 2'));
       await tester.pump();
 
       await _click(tester, const Offset(300, 300));
@@ -839,7 +840,7 @@ void main() {
 
     testWidgets('finishes a line with enter', (tester) async {
       await openOver(tester);
-      await tester.tap(find.text('Line'));
+      await tester.tap(find.text('Line 2'));
       await tester.pump();
       await _click(tester, const Offset(300, 300));
       await _click(tester, const Offset(400, 350));
@@ -853,7 +854,7 @@ void main() {
 
     testWidgets('gives up on a line with escape', (tester) async {
       await openOver(tester);
-      await tester.tap(find.text('Line'));
+      await tester.tap(find.text('Line 2'));
       await tester.pump();
       await _click(tester, const Offset(300, 300));
       await _click(tester, const Offset(400, 350));
@@ -870,13 +871,89 @@ void main() {
 
     testWidgets('finishes a line by clicking its last point', (tester) async {
       await openOver(tester);
-      await tester.tap(find.text('Line'));
+      await tester.tap(find.text('Line 2'));
       await tester.pump();
       await _click(tester, const Offset(300, 300));
       await _click(tester, const Offset(400, 350));
       await _click(tester, const Offset(400, 350));
 
       expect(_painterIn(tester).selection.single, isA<PickedWay>());
+    });
+
+    testWidgets('takes hold of a node just put down', (tester) async {
+      await openOver(tester);
+      await tester.tap(find.text('Node 1'));
+      await tester.pump();
+      await _click(tester, const Offset(600, 500));
+      await _click(tester, const Offset(300, 200));
+      expect(_painterIn(tester).selection, isEmpty, reason: 'clicked away');
+
+      // And it can be taken hold of again, though it is in no box.
+      await _click(tester, const Offset(600, 500));
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+    });
+
+    testWidgets('takes hold of a line just drawn', (tester) async {
+      await openOver(tester);
+      await tester.tap(find.text('Line 2'));
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(600, 300));
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      await _click(tester, const Offset(200, 600));
+      expect(_painterIn(tester).selection, isEmpty, reason: 'clicked away');
+
+      await _click(tester, const Offset(450, 300));
+      expect(_painterIn(tester).selection.single, isA<PickedWay>());
+      expect(find.textContaining('Way -'), findsOneWidget);
+    });
+
+    testWidgets('takes a tool up and puts it down with a number', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+      await tester.pump();
+      await _click(tester, const Offset(600, 500));
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(400, 350));
+      expect(_painterIn(tester).edited.ways, isNotEmpty);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+    });
+
+    testWidgets('draws a closed line with the third tool', (tester) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(500, 300));
+      await _click(tester, const Offset(400, 500));
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      final picked = _painterIn(tester).selection.single as PickedWay;
+      expect(picked.way.isClosed, isTrue);
+      expect(picked.way.nodeIds.length, 4, reason: 'three points and back');
+      expect(picked.way.nodeIds.first, picked.way.nodeIds.last);
+    });
+
+    testWidgets('closes a line by clicking where it started', (tester) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(500, 300));
+      await _click(tester, const Offset(400, 500));
+      await _click(tester, const Offset(300, 300));
+
+      final picked = _painterIn(tester).selection.single as PickedWay;
+      expect(picked.way.isClosed, isTrue);
     });
   });
 }

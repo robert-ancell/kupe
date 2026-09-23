@@ -110,7 +110,7 @@ Picked? refreshed(Picked picked, MapStore store, OsmEdits edits) {
         worldY: Mercator.y(node.latitude),
       );
     case PickedWay():
-      final way = store.ways[picked.id];
+      final way = edits.changedWay(picked.id) ?? store.ways[picked.id];
       if (way == null) return null;
       final points = worldPointsOf(way, store, edits);
       if (points == null) return null;
@@ -129,11 +129,49 @@ bool isNodeSelectable(
   OsmWay way,
   int index, {
   Set<int> selectedWays = const {},
+  int Function(int nodeId)? waysThrough,
 }) {
   if (selectedWays.contains(way.id)) return true;
   final id = way.nodeIds[index];
-  if (store.waysThrough(id) > 1) return true;
+  if ((waysThrough ?? store.waysThrough)(id) > 1) return true;
   return index == 0 || index == way.nodeIds.length - 1;
+}
+
+/// The ways worth looking through for something under a point.
+///
+/// What the boxes around it drew, as it now stands, along with everything
+/// that has been made since. Something just made is in no box: it exists
+/// only among the changes, and not being able to take hold of what has just
+/// been put down is no use at all.
+List<OsmWay> waysNear(MapStore store, OsmEdits? edits, List<TileId> tiles) {
+  final found = <OsmWay>[];
+  final seen = <int>{};
+  for (final tile in tiles) {
+    for (final element in store.drawnIn(tile)) {
+      if (element is! OsmWay || !seen.add(element.id)) continue;
+      if (edits?.isGone(OsmElementType.way, element.id) ?? false) continue;
+      found.add(edits?.changedWay(element.id) ?? element);
+    }
+  }
+  for (final way in edits?.changedWays.values ?? const <OsmWay>[]) {
+    if (seen.add(way.id)) found.add(way);
+  }
+  return found;
+}
+
+/// How many of [ways] run through each node, for saying where they meet.
+int Function(int) _through(List<OsmWay> ways, MapStore store) {
+  final counts = <int, int>{};
+  for (final way in ways) {
+    for (final id in way.nodeIds.toSet()) {
+      counts[id] = (counts[id] ?? 0) + 1;
+    }
+  }
+  return (id) {
+    final here = counts[id] ?? 0;
+    final held = store.waysThrough(id);
+    return here > held ? here : held;
+  };
 }
 
 /// What is under [point] on a view of [size], a node for preference.
@@ -172,45 +210,61 @@ PickedNode? nodeAt(
 }) {
   final world = camera.toWorld(point, size);
   final reach = nodePickTolerance / camera.scale;
+  final ways = waysNear(store, edits, _tilesAround(world, reach, zoom));
+  final through = _through(ways, store);
 
   PickedNode? nearest;
   var nearestDistance = double.infinity;
 
-  for (final tile in _tilesAround(world, reach, zoom)) {
-    for (final element in store.drawnIn(tile)) {
-      if (element is! OsmWay) continue;
-      for (var i = 0; i < element.nodeIds.length; i++) {
-        // A node shared between ways comes round more than once, which
-        // costs a comparison and changes nothing: the same node is the same
-        // distance away. What it must not do is be judged by one way alone,
-        // since it can be the middle of one line and the end of another.
-        final id = element.nodeIds[i];
-        if (!isNodeSelectable(store, element, i, selectedWays: selectedWays)) {
-          continue;
-        }
-        final node = edits?.movedNode(id) ?? store.nodes[id];
-        if (node == null) continue;
+  void consider(OsmNode node) {
+    final x = Mercator.x(node.longitude);
+    final y = Mercator.y(node.latitude);
+    final distance = math.sqrt(
+      (x - world.dx) * (x - world.dx) + (y - world.dy) * (y - world.dy),
+    );
+    if (distance > reach || distance >= nearestDistance) return;
+    nearestDistance = distance;
+    nearest = PickedNode(node: node, worldX: x, worldY: y);
+  }
 
-        final x = Mercator.x(node.longitude);
-        final y = Mercator.y(node.latitude);
-        final distance = math.sqrt(
-          (x - world.dx) * (x - world.dx) + (y - world.dy) * (y - world.dy),
-        );
-        if (distance > reach || distance >= nearestDistance) continue;
-        nearestDistance = distance;
-        nearest = PickedNode(node: node, worldX: x, worldY: y);
+  for (final way in ways) {
+    for (var i = 0; i < way.nodeIds.length; i++) {
+      // A node shared between ways comes round more than once, which costs a
+      // comparison and changes nothing. What it must not do is be judged by
+      // one way alone, since it can be the middle of one line and the end of
+      // another.
+      final id = way.nodeIds[i];
+      if (edits?.isGone(OsmElementType.node, id) ?? false) continue;
+      if (!isNodeSelectable(
+        store,
+        way,
+        i,
+        selectedWays: selectedWays,
+        waysThrough: through,
+      )) {
+        continue;
       }
+      final node = edits?.movedNode(id) ?? store.nodes[id];
+      if (node == null) continue;
+      consider(node);
     }
+  }
+
+  // A node just put down belongs to no way at all, and is always there to be
+  // taken hold of.
+  for (final node in edits?.movedNodes.values ?? const <OsmNode>[]) {
+    if (edits!.isGone(OsmElementType.node, node.id)) continue;
+    if (through(node.id) > 0) continue;
+    consider(node);
   }
   return nearest;
 }
 
-/// The line under [point] on a view of [size], or null if there is none.
+/// The line under [point], or null if there is none.
 ///
-/// Only the tiles the pointer is over are looked through, and only their
-/// lines: a filled shape is not a line, and neither is a way the style draws
-/// nothing for. Where several lines are under the pointer the nearest wins,
-/// so a footpath beside a road can still be picked.
+/// Only the tiles the pointer is over are looked through, along with
+/// anything made since. Where several lines are under the pointer the
+/// nearest wins, so a footpath beside a road can still be picked.
 PickedWay? wayAt(
   Offset point,
   Camera camera,
@@ -225,29 +279,30 @@ PickedWay? wayAt(
   PickedWay? nearest;
   var nearestDistance = double.infinity;
 
-  for (final tile in _tilesAround(world, reach, zoom)) {
-    for (final element in store.drawnIn(tile)) {
-      if (element is! OsmWay) continue;
-      if (element.isClosed && enclosesArea(element.tags)) continue;
-      final layers = lineLayersFor(element.tags);
-      if (layers.isEmpty) continue;
+  for (final way in waysNear(store, edits, _tilesAround(world, reach, zoom))) {
+    if (way.isClosed && enclosesArea(way.tags)) continue;
+    final layers = lineLayersFor(way.tags);
+    // A way the style says nothing about is not on the map to be taken hold
+    // of, unless it has just been drawn and has not been said anything about
+    // yet.
+    if (layers.isEmpty && (edits?.changedWay(way.id) == null)) continue;
 
-      final points = worldPointsOf(element, store, edits);
-      if (points == null) continue;
+    final points = worldPointsOf(way, store, edits);
+    if (points == null || points.length < 4) continue;
 
-      // Anywhere the line is drawn counts, so half its width is taken off
-      // the distance before anything is compared.
-      var width = 0.0;
-      for (final layer in layers) {
-        if (mapStyle[layer].width > width) width = mapStyle[layer].width;
-      }
-      final half = width / 2 / camera.scale;
-      final distance = _distanceTo(points, world) - half;
-      if (distance > reach || distance >= nearestDistance) continue;
-
-      nearestDistance = distance;
-      nearest = PickedWay(way: element, points: points, width: width);
+    // Anywhere the line is drawn counts, so half its width is taken off the
+    // distance before anything is compared. A line with nothing said about
+    // it yet, which is what one just drawn is, is taken at its drawn width.
+    var width = mapStyle[layerIndex('minor')].width;
+    for (final layer in layers) {
+      if (mapStyle[layer].width > width) width = mapStyle[layer].width;
     }
+    final half = width / 2 / camera.scale;
+    final distance = _distanceTo(points, world) - half;
+    if (distance > reach || distance >= nearestDistance) continue;
+
+    nearestDistance = distance;
+    nearest = PickedWay(way: way, points: points, width: width);
   }
   return nearest;
 }

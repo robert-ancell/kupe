@@ -53,6 +53,9 @@ enum MapTool {
 
   /// Draws a line, a point at a time.
   addLine,
+
+  /// Draws a line that comes back to where it started.
+  addArea,
 }
 
 /// How far in the map has to be before anything can be edited.
@@ -413,6 +416,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         _placeNode(at);
         return;
       case MapTool.addLine:
+      case MapTool.addArea:
         _extendLine(at);
         return;
       case MapTool.browse:
@@ -561,6 +565,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       _finishLine();
       return;
     }
+    // Coming back to where a closed line started closes it there.
+    if (_tool == MapTool.addArea &&
+        _drawing.length > 2 &&
+        _isOn(_drawing.first, at)) {
+      _finishLine();
+      return;
+    }
 
     final under = nodeAt(
       at,
@@ -597,9 +608,15 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   }
 
   /// Finishes the line being drawn, keeping it if it has any length.
+  ///
+  /// A closed line comes back to the point it started from, which is the
+  /// same node again rather than another one in the same place.
   void _finishLine() {
-    if (_drawing.length > 1) {
-      final way = _edits.createWay(nodeIds: _drawing);
+    final closing = _tool == MapTool.addArea;
+    if (_drawing.length > (closing ? 2 : 1)) {
+      final way = _edits.createWay(
+        nodeIds: [..._drawing, if (closing) _drawing.first],
+      );
       _selectOnly(way);
     }
     setState(() {
@@ -617,6 +634,15 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       _tool = MapTool.browse;
     });
     _loader.editsChanged();
+  }
+
+  /// Takes up a tool, or puts it down again if it was already in hand.
+  void _chooseTool(MapTool tool) {
+    if (_tooFarToEdit) return;
+    setState(() {
+      _drawing.clear();
+      _tool = _tool == tool ? MapTool.browse : tool;
+    });
   }
 
   /// Selects one element and nothing else.
@@ -685,6 +711,15 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                 const _FinishIntent(),
             const SingleActivator(LogicalKeyboardKey.escape):
                 const _AbandonIntent(),
+            const SingleActivator(LogicalKeyboardKey.digit1): const _ToolIntent(
+              MapTool.addNode,
+            ),
+            const SingleActivator(LogicalKeyboardKey.digit2): const _ToolIntent(
+              MapTool.addLine,
+            ),
+            const SingleActivator(LogicalKeyboardKey.digit3): const _ToolIntent(
+              MapTool.addArea,
+            ),
           },
           child: Actions(
             actions: <Type, Action<Intent>>{
@@ -702,7 +737,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
               ),
               _FinishIntent: CallbackAction<_FinishIntent>(
                 onInvoke: (_) {
-                  if (_tool == MapTool.addLine) _finishLine();
+                  if (_tool != MapTool.browse) _finishLine();
+                  return null;
+                },
+              ),
+              _ToolIntent: CallbackAction<_ToolIntent>(
+                onInvoke: (intent) {
+                  _chooseTool(intent.tool);
                   return null;
                 },
               ),
@@ -1149,6 +1190,14 @@ class _AbandonIntent extends Intent {
   const _AbandonIntent();
 }
 
+/// Asks for a tool to be taken up.
+class _ToolIntent extends Intent {
+  /// Which one.
+  final MapTool tool;
+
+  const _ToolIntent(this.tool);
+}
+
 /// The buttons that say what a click does next.
 class _Tools extends StatelessWidget {
   final MapTool tool;
@@ -1162,16 +1211,23 @@ class _Tools extends StatelessWidget {
       children: [
         _ToolButton(
           icon: Icons.fiber_manual_record,
-          label: 'Node',
+          label: 'Node 1',
           chosen: tool == MapTool.addNode,
           onPressed: () => onChanged(MapTool.addNode),
         ),
         const SizedBox(height: 6),
         _ToolButton(
           icon: Icons.timeline,
-          label: 'Line',
+          label: 'Line 2',
           chosen: tool == MapTool.addLine,
           onPressed: () => onChanged(MapTool.addLine),
+        ),
+        const SizedBox(height: 6),
+        _ToolButton(
+          icon: Icons.pentagon_outlined,
+          label: 'Area 3',
+          chosen: tool == MapTool.addArea,
+          onPressed: () => onChanged(MapTool.addArea),
         ),
       ],
     );

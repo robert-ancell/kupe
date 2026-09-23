@@ -46,6 +46,7 @@ EditedGeometry editedGeometry(
   MapStore store,
   OsmEdits edits, {
   List<int> drawing = const [],
+  bool closing = false,
 }) {
   if (edits.isEmpty && drawing.isEmpty) {
     return const EditedGeometry(ways: [], nodes: []);
@@ -82,7 +83,11 @@ EditedGeometry editedGeometry(
 
   // The line being drawn, which is not a way yet.
   if (drawing.length > 1) {
-    final points = _pointsOf(drawing, store, edits);
+    final points = _pointsOf(
+      [...drawing, if (closing && drawing.length > 2) drawing.first],
+      store,
+      edits,
+    );
     if (points.length >= 4) {
       ways.add(
         EditedWay(
