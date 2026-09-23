@@ -154,6 +154,9 @@ class MapPainter extends CustomPainter {
 
   static final _nodeFill = Paint()..color = const Color(0xffffffff);
 
+  static final _vertexEdgePaint = Paint()
+    ..color = Color(mapStyle[layerIndex('vertex-edge')].colour);
+
   static final _nodeEdge = Paint()
     ..color = const Color(0xff2f6fed)
     ..style = PaintingStyle.stroke
@@ -175,15 +178,28 @@ class MapPainter extends CustomPainter {
       calls += 1;
     }
 
-    // Under the map rather than over it. What is picked out reads as an
-    // outline around the line, which means the line itself has to be drawn
-    // on top of it.
+    // A line that is picked out goes under the map, so that it reads as an
+    // outline around the line rather than as a line that has changed
+    // colour: the road, its casing and its points all stay visible inside.
     for (final picked in selection) {
-      _drawPicked(canvas, size, picked, _selectionPaint, selectionSpread);
+      if (picked is! PickedWay) continue;
+      _drawWay(
+        canvas,
+        size,
+        picked,
+        _selectionPaint,
+        outlineWidth(picked.width, selectionSpread),
+      );
       calls += 1;
     }
-    if (highlight != null) {
-      _drawPicked(canvas, size, highlight!, _highlightPaint, highlightSpread);
+    if (highlight case final PickedWay picked) {
+      _drawWay(
+        canvas,
+        size,
+        picked,
+        _highlightPaint,
+        outlineWidth(picked.width, highlightSpread),
+      );
       calls += 1;
     }
 
@@ -195,11 +211,27 @@ class MapPainter extends CustomPainter {
         calls += _draw(canvas, size, tile, tile.lines, layer, paint);
       }
     }
+
     // The nodes of a selected line go over everything: they are what is
     // taken hold of, and they are only there while it is selected.
     for (final picked in selection) {
       if (picked is PickedWay) _drawNodes(canvas, size, picked);
     }
+
+    // A node that is picked out goes over everything as well. A node is a
+    // point rather than something to run along, so an outline under the map
+    // would be hidden by every line that runs through it, which is exactly
+    // the lines that make it worth taking hold of.
+    for (final picked in selection) {
+      if (picked is! PickedNode) continue;
+      _drawNode(canvas, size, picked, _selectionPaint, selectionSpread);
+      calls += 1;
+    }
+    if (highlight case final PickedNode picked) {
+      _drawNode(canvas, size, picked, _highlightPaint, highlightSpread);
+      calls += 1;
+    }
+
     onDrawn?.call(calls);
   }
 
@@ -228,32 +260,26 @@ class MapPainter extends CustomPainter {
     return calls;
   }
 
-  /// Draws what has been picked out, whether pointed at or selected.
-  void _drawPicked(
+  /// Draws a node that has been picked out: the mark it is picked out with,
+  /// and the node itself over the top of it.
+  void _drawNode(
     Canvas canvas,
     Size size,
-    Picked picked,
+    PickedNode picked,
     Paint paint,
     double spread,
   ) {
-    switch (picked) {
-      case PickedWay():
-        _drawWay(
-          canvas,
-          size,
-          picked,
-          paint,
-          outlineWidth(picked.width, spread),
-        );
-      case PickedNode():
-        final at = camera.toScreen(picked.worldX, picked.worldY, size);
-        final marked = mapStyle[layerIndex('vertex-edge')].width;
-        canvas.drawCircle(
-          at,
-          outlineWidth(marked, spread) / 2,
-          paint..style = PaintingStyle.fill,
-        );
-    }
+    final at = camera.toScreen(picked.worldX, picked.worldY, size);
+    final marked = mapStyle[layerIndex('vertex-edge')].width;
+    canvas.drawCircle(
+      at,
+      outlineWidth(marked, spread) / 2,
+      paint..style = PaintingStyle.fill,
+    );
+    // And the node again on top, because the one in the tile is under the
+    // mark that has just been drawn.
+    canvas.drawCircle(at, marked / 2, _vertexEdgePaint);
+    canvas.drawCircle(at, mapStyle[layerIndex('vertex')].width / 2, _nodeFill);
   }
 
   /// Draws the nodes of a way that can be taken hold of while it is
