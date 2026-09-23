@@ -682,6 +682,53 @@ void main() {
       expect(find.textContaining('ctrl+z'), findsNothing);
     });
 
+    testWidgets('leaves nothing behind where the node started', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      final end = endOfRoad(tester);
+
+      // Take hold of the node, so that it is both selected and pointed at,
+      // and move it without letting go.
+      final drag = await tester.startGesture(end);
+      await drag.moveBy(const Offset(60, 40));
+      await tester.pump();
+
+      final painter = _painterIn(tester);
+      final size = tester.getSize(find.byType(MapView));
+      final moved = painter.edited.nodes.single;
+      final where = painter.camera.toScreen(moved.$1, moved.$2, size);
+
+      // Whatever is drawn picked out is drawn where the node is now, not
+      // where it was when it was picked.
+      for (final picked in [...painter.selection, painter.highlight]) {
+        if (picked is PickedNode) {
+          final at = painter.camera.toScreen(
+            picked.worldX,
+            picked.worldY,
+            size,
+          );
+          expect((at - where).distance, lessThan(1));
+        }
+        if (picked is PickedWay) {
+          final near = [
+            for (var i = 0; i + 1 < picked.points.length; i += 2)
+              (painter.camera.toScreen(
+                        picked.points[i],
+                        picked.points[i + 1],
+                        size,
+                      ) -
+                      where)
+                  .distance,
+          ].reduce((a, b) => a < b ? a : b);
+          expect(near, lessThan(1), reason: 'the line follows its node');
+        }
+      }
+
+      await drag.up();
+      await tester.pump();
+    });
+
     testWidgets('changes nothing while too far out to edit', (tester) async {
       await openOver(tester);
       await tester.sendEventToBinding(

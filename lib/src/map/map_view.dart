@@ -398,6 +398,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         longitude: Mercator.longitude(world.dx),
         continuing: !first,
       );
+      _refreshPicked();
     });
     if (first) _loader.editsChanged();
   }
@@ -406,6 +407,28 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   void _undo() {
     if (!_edits.undo()) return;
     _loader.editsChanged();
+    _refreshPicked();
+  }
+
+  /// Brings what is pointed at and what is selected up to date with what has
+  /// been changed.
+  ///
+  /// Both hold the geometry to draw themselves by, taken when they were
+  /// picked. Without this they go on being drawn where they were before the
+  /// change, which for a node being dragged is a circle left behind at the
+  /// place it started from.
+  void _refreshPicked() {
+    final store = _loader.store;
+    final hovered = _hovered;
+    if (hovered != null) _hovered = refreshed(hovered, store, _edits);
+    for (final key in _selected.keys.toList()) {
+      final picked = refreshed(_selected[key]!, store, _edits);
+      if (picked == null) {
+        _selected.remove(key);
+      } else {
+        _selected[key] = picked;
+      }
+    }
   }
 
   void _scroll(PointerSignalEvent event) {

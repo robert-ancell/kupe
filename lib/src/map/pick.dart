@@ -94,6 +94,30 @@ class PickedWay extends Picked {
   Map<String, String> get tags => way.tags;
 }
 
+/// The same thing picked out, from where it now is.
+///
+/// What is picked holds the geometry to draw it by, which stops being true
+/// the moment it is moved. Anything holding onto something picked has to ask
+/// for it again as it changes, or it draws where the thing used to be.
+Picked? refreshed(Picked picked, MapStore store, OsmEdits edits) {
+  switch (picked) {
+    case PickedNode():
+      final node = edits.movedNode(picked.id) ?? store.nodes[picked.id];
+      if (node == null) return null;
+      return PickedNode(
+        node: node,
+        worldX: Mercator.x(node.longitude),
+        worldY: Mercator.y(node.latitude),
+      );
+    case PickedWay():
+      final way = store.ways[picked.id];
+      if (way == null) return null;
+      final points = worldPointsOf(way, store, edits);
+      if (points == null) return null;
+      return PickedWay(way: way, points: points, width: picked.width);
+  }
+}
+
 /// Whether a node of a way can be taken hold of.
 ///
 /// Where a way starts or stops, and where ways meet, are always there to be

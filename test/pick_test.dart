@@ -113,6 +113,7 @@ void main() {
   });
 
   _nodes();
+  _refreshing();
 
   test('picks across the seam between tiles', () {
     // A way drawn into the tile next door is still under the pointer.
@@ -246,6 +247,64 @@ void _nodes() {
         isTrue,
         reason: 'the middle of a selected line',
       );
+    });
+  });
+}
+
+void _refreshing() {
+  group('following a change', () {
+    test('gives a node back from where it now is', () {
+      final store = _road();
+      final edits = OsmEdits();
+      final picked = pickAt(_nodeOn(0), _camera, _size, store)! as PickedNode;
+
+      edits.moveNode(
+        picked.node,
+        latitude: _latitude + 0.001,
+        longitude: _longitude + 0.001,
+      );
+      final now = refreshed(picked, store, edits)! as PickedNode;
+
+      expect(now.id, picked.id);
+      expect(now.worldY, isNot(picked.worldY));
+      expect(now.worldY, closeTo(Mercator.y(_latitude + 0.001), 1e-12));
+      expect(now.worldX, closeTo(Mercator.x(_longitude + 0.001), 1e-12));
+    });
+
+    test('gives a line back with its moved node moved', () {
+      final store = _road();
+      final edits = OsmEdits();
+      final picked =
+          pickAt(_nodeOn(2), _camera, _size, store, selectedWays: const {1})!
+              as PickedNode;
+      final line = PickedWay(
+        way: store.ways[1]!,
+        points: worldPointsOf(store.ways[1]!, store)!,
+        width: 5,
+      );
+
+      edits.moveNode(
+        picked.node,
+        latitude: _latitude + 0.001,
+        longitude: _longitude,
+      );
+      final now = refreshed(line, store, edits)! as PickedWay;
+
+      expect(now.points[5], closeTo(Mercator.y(_latitude + 0.001), 1e-12));
+      expect(now.points[1], line.points[1], reason: 'the others stay put');
+    });
+
+    test('gives back what it was given when nothing has changed', () {
+      final store = _road();
+      final picked = pickAt(_nodeOn(0), _camera, _size, store)! as PickedNode;
+      final now = refreshed(picked, store, OsmEdits())! as PickedNode;
+      expect(now.worldX, picked.worldX);
+      expect(now.worldY, picked.worldY);
+    });
+
+    test('gives back nothing for something no longer held', () {
+      final picked = pickAt(_nodeOn(0), _camera, _size, _road())!;
+      expect(refreshed(picked, MapStore(), OsmEdits()), isNull);
     });
   });
 }
