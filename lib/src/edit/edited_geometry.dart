@@ -1,7 +1,6 @@
 import 'package:osm/osm.dart';
 
 import '../data/map_store.dart';
-import '../map/pick.dart';
 import '../style/style.dart';
 
 /// A line drawn from what it is now rather than from what was built.
@@ -43,23 +42,55 @@ class EditedGeometry {
 /// Only what has been changed: everything else was built into a tile once and
 /// is still on the graphics card. A handful of lines a frame is the price of
 /// a node following the pointer.
-EditedGeometry editedGeometry(MapStore store, OsmEdits edits) {
-  if (edits.isEmpty) return const EditedGeometry(ways: [], nodes: []);
+EditedGeometry editedGeometry(
+  MapStore store,
+  OsmEdits edits, {
+  List<int> drawing = const [],
+}) {
+  if (edits.isEmpty && drawing.isEmpty) {
+    return const EditedGeometry(ways: [], nodes: []);
+  }
 
   final ways = <EditedWay>[];
-  final drawn = <int>{};
-  for (final id in edits.movedNodes.keys) {
-    for (final wayId in store.waysUsing(id)) {
-      if (!drawn.add(wayId)) continue;
-      final way = store.ways[wayId];
-      if (way == null) continue;
-      final layers = way.isClosed && enclosesArea(way.tags)
-          ? const <int>[]
-          : lineLayersFor(way.tags);
-      if (layers.isEmpty) continue;
-      final points = worldPointsOf(way, store, edits);
-      if (points == null) continue;
-      ways.add(EditedWay(way: way, points: points, layers: layers));
+  final wanted = <int>{
+    // Every way that has been made or put through other nodes, and every way
+    // running through a node that has moved.
+    ...edits.changedWays.keys,
+    for (final id in edits.movedNodes.keys) ...store.waysUsing(id),
+  };
+
+  for (final id in wanted) {
+    final way = edits.changedWay(id) ?? store.ways[id];
+    if (way == null) continue;
+    if (edits.isGone(OsmElementType.way, id)) continue;
+    final layers = way.isClosed && enclosesArea(way.tags)
+        ? const <int>[]
+        : lineLayersFor(way.tags);
+    final points = _pointsOf(way.nodeIds, store, edits);
+    if (points.length < 4) continue;
+    ways.add(
+      EditedWay(
+        way: way,
+        points: points,
+        // A way with nothing said about it yet, which is what a line being
+        // drawn is, is still drawn: otherwise there is nothing to see while
+        // it is being drawn.
+        layers: layers.isEmpty ? [layerIndex('minor')] : layers,
+      ),
+    );
+  }
+
+  // The line being drawn, which is not a way yet.
+  if (drawing.length > 1) {
+    final points = _pointsOf(drawing, store, edits);
+    if (points.length >= 4) {
+      ways.add(
+        EditedWay(
+          way: OsmWay(id: 0, nodeIds: drawing),
+          points: points,
+          layers: [layerIndex('minor')],
+        ),
+      );
     }
   }
 
@@ -67,7 +98,22 @@ EditedGeometry editedGeometry(MapStore store, OsmEdits edits) {
     ways: ways,
     nodes: [
       for (final node in edits.movedNodes.values)
-        (Mercator.x(node.longitude), Mercator.y(node.latitude)),
+        if (!edits.isGone(OsmElementType.node, node.id))
+          (Mercator.x(node.longitude), Mercator.y(node.latitude)),
     ],
   );
+}
+
+/// Where a run of nodes is, from wherever they now are, leaving out any that
+/// are not held.
+List<double> _pointsOf(List<int> ids, MapStore store, OsmEdits edits) {
+  final points = <double>[];
+  for (final id in ids) {
+    if (edits.isGone(OsmElementType.node, id)) continue;
+    final node = edits.movedNode(id) ?? store.nodes[id];
+    if (node == null) continue;
+    points.add(Mercator.x(node.longitude));
+    points.add(Mercator.y(node.latitude));
+  }
+  return points;
 }

@@ -148,6 +148,26 @@ MapPainter _painterIn(WidgetTester tester) =>
             .painter!
         as MapPainter;
 
+/// A click, with real time afterwards so that the next one is a click of its
+/// own rather than the second half of a double click.
+Future<void> _click(WidgetTester tester, Offset at) async {
+  await tester.tapAt(at);
+  await tester.runAsync(
+    () => Future<void>.delayed(
+      doubleClickWait + const Duration(milliseconds: 20),
+    ),
+  );
+  await tester.pump();
+}
+
+/// Two clicks in the same place, quickly.
+Future<void> _doubleClick(WidgetTester tester, Offset at) async {
+  await tester.tapAt(at);
+  await tester.pump();
+  await tester.tapAt(at);
+  await tester.pump();
+}
+
 /// Lets fetching and decoding actually happen, which the fake clock a widget
 /// test runs on otherwise leaves hanging.
 Future<void> _settle(WidgetTester tester) async {
@@ -165,6 +185,9 @@ Future<void> _settle(WidgetTester tester) async {
 Future<void> _open(WidgetTester tester, {double zoom = 17}) async {
   await tester.binding.setSurfaceSize(const Size(1000, 800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
+  // A click is not known to be a single click until the wait for a second
+  // one has passed, and a test that ends inside that wait is a test with a
+  // timer still running.
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
@@ -409,34 +432,29 @@ void main() {
       await openOver(tester);
       expect(_painterIn(tester).selection, isEmpty);
 
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       expect(_painterIn(tester).selection.length, 1);
       expect(find.textContaining('Way '), findsOneWidget);
     });
 
     testWidgets('shows what the line is tagged with', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       expect(find.text('highway = residential'), findsOneWidget);
       expect(find.text('name = First Road'), findsOneWidget);
     });
 
     testWidgets('selects one line at a time without shift', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
-      await tester.tapAt(other);
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
+      await _click(tester, other);
       expect(_painterIn(tester).selection.length, 1);
       expect(find.text('name = Second Road'), findsOneWidget);
     });
 
     testWidgets('adds to the selection with shift', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       await shift(tester, () => tester.tapAt(other));
       expect(_painterIn(tester).selection.length, 2);
       expect(find.text('2 selected'), findsOneWidget);
@@ -444,8 +462,7 @@ void main() {
 
     testWidgets('shows only what the selection shares', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       await shift(tester, () => tester.tapAt(other));
       // Both are residential roads; only one of them is First Road.
       expect(find.text('highway = residential'), findsOneWidget);
@@ -454,8 +471,7 @@ void main() {
 
     testWidgets('takes out of the selection with shift', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       await shift(tester, () => tester.tapAt(other));
       expect(_painterIn(tester).selection.length, 2);
 
@@ -466,12 +482,10 @@ void main() {
 
     testWidgets('clears the selection on clicking nothing', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       expect(_painterIn(tester).selection, isNotEmpty);
 
-      await tester.tapAt(const Offset(500, 700));
-      await tester.pump();
+      await _click(tester, const Offset(500, 700));
       expect(_painterIn(tester).selection, isEmpty);
       expect(find.textContaining('Way '), findsNothing);
     });
@@ -480,16 +494,14 @@ void main() {
       tester,
     ) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       await shift(tester, () => tester.tapAt(const Offset(500, 700)));
       expect(_painterIn(tester).selection.length, 1);
     });
 
     testWidgets('lets go of the selection when zoomed out', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       expect(_painterIn(tester).selection, isNotEmpty);
 
       await tester.sendEventToBinding(
@@ -541,20 +553,17 @@ void main() {
       tester,
     ) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       expect(_painterIn(tester).selection.single, isA<PickedWay>());
       expect(find.textContaining('Way '), findsOneWidget);
     });
 
     testWidgets('takes the node a line ends at', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       final end = endOfRoad(tester);
 
-      await tester.tapAt(end);
-      await tester.pump();
+      await _click(tester, end);
       expect(_painterIn(tester).selection.single, isA<PickedNode>());
       expect(find.textContaining('Node '), findsOneWidget);
     });
@@ -564,13 +573,11 @@ void main() {
     ) async {
       await openOver(tester);
       // Nothing selected: the middle of the line gives the line.
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       expect(_painterIn(tester).selection.single, isA<PickedWay>());
 
       // Selected: the same place now gives the node on it.
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       expect(_painterIn(tester).selection.single, isA<PickedNode>());
     });
 
@@ -578,17 +585,14 @@ void main() {
       tester,
     ) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
+      await _click(tester, const Offset(500, 400));
       expect(_painterIn(tester).selection.single, isA<PickedNode>());
 
       // With only the node selected, its line is not, so the nodes along
       // the middle of it are out of reach again and the same place gives
       // the line back.
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       expect(_painterIn(tester).selection.single, isA<PickedWay>());
     });
   });
@@ -628,8 +632,7 @@ void main() {
 
     testWidgets('moves the node the drag started on', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       final end = endOfRoad(tester);
       expect(_painterIn(tester).edited.isEmpty, isTrue);
 
@@ -656,8 +659,7 @@ void main() {
 
     testWidgets('counts a drag as one change', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       final end = endOfRoad(tester);
 
       await tester.dragFrom(end, const Offset(40, 30));
@@ -667,8 +669,7 @@ void main() {
 
     testWidgets('puts the node back when the change is undone', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       await tester.dragFrom(endOfRoad(tester), const Offset(40, 30));
       await tester.pump();
       expect(_painterIn(tester).edited.isEmpty, isFalse);
@@ -684,8 +685,7 @@ void main() {
 
     testWidgets('leaves nothing behind where the node started', (tester) async {
       await openOver(tester);
-      await tester.tapAt(const Offset(500, 400));
-      await tester.pump();
+      await _click(tester, const Offset(500, 400));
       final end = endOfRoad(tester);
 
       // Take hold of the node, so that it is both selected and pointed at,
@@ -742,6 +742,141 @@ void main() {
       await tester.dragFrom(const Offset(500, 400), const Offset(40, 30));
       await tester.pump();
       expect(_painterIn(tester).edited.isEmpty, isTrue);
+    });
+  });
+
+  group('editing', () {
+    Future<void> openOver(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: _shortRoad),
+              initialCamera: Camera.at(
+                latitude: _roadLatitude,
+                longitude: 174.76,
+                zoom: 18,
+              ),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+    }
+
+    testWidgets('puts a node into the line on a double click', (tester) async {
+      await openOver(tester);
+      await _doubleClick(tester, const Offset(560, 400));
+
+      // The node is made and taken hold of, and the line it went into is
+      // drawn from what it is now.
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+      expect(find.textContaining('Node -'), findsOneWidget);
+      expect(_painterIn(tester).edited.ways, isNotEmpty);
+    });
+
+    testWidgets('leaves the map alone on a double click at nothing', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await _doubleClick(tester, const Offset(500, 700));
+      expect(_painterIn(tester).edited.isEmpty, isTrue);
+      expect(find.textContaining('change'), findsNothing);
+    });
+
+    testWidgets('takes a selected node off the map with delete', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await _doubleClick(tester, const Offset(560, 400));
+      final made = _painterIn(tester).selection.single;
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+
+      expect(_painterIn(tester).selection, isEmpty);
+      expect(
+        _painterIn(tester).edited.nodes.length,
+        0,
+        reason: 'node ${made.id} is gone',
+      );
+    });
+
+    testWidgets('offers a node and a line to add', (tester) async {
+      await openOver(tester);
+      expect(find.text('Node'), findsOneWidget);
+      expect(find.text('Line'), findsOneWidget);
+    });
+
+    testWidgets('puts a node down and takes hold of it', (tester) async {
+      await openOver(tester);
+      await tester.tap(find.text('Node'));
+      await tester.pump();
+
+      await _click(tester, const Offset(600, 500));
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+      expect(find.textContaining('Node -'), findsOneWidget);
+      // And the tool is put down again after one use.
+      expect(find.text('1 change, ctrl+z to undo'), findsOneWidget);
+    });
+
+    testWidgets('draws a line a click at a time', (tester) async {
+      await openOver(tester);
+      await tester.tap(find.text('Line'));
+      await tester.pump();
+
+      await _click(tester, const Offset(300, 300));
+      expect(_painterIn(tester).edited.ways, isEmpty, reason: 'one point');
+
+      await _click(tester, const Offset(400, 350));
+      expect(_painterIn(tester).edited.ways, isNotEmpty);
+
+      await _click(tester, const Offset(500, 300));
+      expect(_painterIn(tester).edited.ways.single.points.length, 6);
+    });
+
+    testWidgets('finishes a line with enter', (tester) async {
+      await openOver(tester);
+      await tester.tap(find.text('Line'));
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(400, 350));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(_painterIn(tester).selection.single, isA<PickedWay>());
+      expect(find.textContaining('Way -'), findsOneWidget);
+    });
+
+    testWidgets('gives up on a line with escape', (tester) async {
+      await openOver(tester);
+      await tester.tap(find.text('Line'));
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(400, 350));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(_painterIn(tester).selection, isEmpty);
+      expect(
+        _painterIn(tester).edited.ways.where((w) => w.way.id < 0),
+        isEmpty,
+      );
+    });
+
+    testWidgets('finishes a line by clicking its last point', (tester) async {
+      await openOver(tester);
+      await tester.tap(find.text('Line'));
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(400, 350));
+      await _click(tester, const Offset(400, 350));
+
+      expect(_painterIn(tester).selection.single, isA<PickedWay>());
     });
   });
 }

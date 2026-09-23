@@ -12,6 +12,7 @@ import 'package:osm/osm.dart';
 
 import '../data/map_loader.dart';
 import '../edit/edited_geometry.dart';
+import '../edit/insert.dart';
 import '../imagery/imagery_layer.dart';
 import '../geometry/tile.dart';
 import '../render/map_painter.dart';
@@ -34,6 +35,25 @@ const settleDelay = Duration(milliseconds: 250);
 /// before anything is asked about it, and long enough that moving on again
 /// cancels it.
 const checkDelay = Duration(seconds: 2);
+
+/// How long after a click a second one in the same place is taken as a
+/// double click rather than as another click.
+const doubleClickWait = Duration(milliseconds: 400);
+
+/// And how far it may be away and still count as the same place.
+const doubleClickSlop = 20.0;
+
+/// What a click on the map does.
+enum MapTool {
+  /// Takes hold of whatever is under it.
+  browse,
+
+  /// Puts a node down.
+  addNode,
+
+  /// Draws a line, a point at a time.
+  addLine,
+}
 
 /// How far in the map has to be before anything can be edited.
 ///
@@ -131,6 +151,16 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   )..addListener(_zoomStep);
   double? _easeFrom;
   double? _easeTo;
+
+  /// What a click does next.
+  MapTool _tool = MapTool.browse;
+
+  /// The nodes of the line being drawn, if one is.
+  final _drawing = <int>[];
+
+  DateTime? _tappedAt;
+  Offset? _tappedOn;
+
   Picked? _hovered;
   PickedNode? _dragging;
   Offset? _pressedAt;
@@ -356,6 +386,38 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// than a change of mind.
   void _tap(Offset at) {
     if (_tooFarToEdit) return;
+
+    // A second click in the same place, soon enough, puts a node into the
+    // line there. Counted here rather than by asking for a double click,
+    // because that holds every single click back until it is sure there is
+    // no second one, and an editor that waits to say what has been selected
+    // feels broken.
+    final last = _tappedAt;
+    final where = _tappedOn;
+    final quick =
+        last != null &&
+        where != null &&
+        !HardwareKeyboard.instance.isShiftPressed &&
+        DateTime.now().difference(last) < doubleClickWait &&
+        (at - where).distance < doubleClickSlop;
+    _tappedAt = DateTime.now();
+    _tappedOn = at;
+    if (quick && _tool == MapTool.browse) {
+      _tappedAt = null;
+      _insertNode(at);
+      return;
+    }
+
+    switch (_tool) {
+      case MapTool.addNode:
+        _placeNode(at);
+        return;
+      case MapTool.addLine:
+        _extendLine(at);
+        return;
+      case MapTool.browse:
+        break;
+    }
     final picked = pickAt(
       at,
       _camera,
@@ -431,6 +493,164 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     }
   }
 
+  /// Puts a node into the line under the pointer.
+  ///
+  /// Where a double click lands rather than where the line's nodes are, so
+  /// that a node can be put exactly where it is wanted.
+  void _insertNode(Offset at) {
+    if (_tooFarToEdit) return;
+    final line = wayAt(
+      at,
+      _camera,
+      _size,
+      _loader.store,
+      edits: _edits,
+      zoom: loadZoom,
+    );
+    if (line == null) return;
+
+    final world = _camera.toWorld(at, _size);
+    final made = insertNodeInto(
+      line.way,
+      _loader.store,
+      _edits,
+      worldX: world.dx,
+      worldY: world.dy,
+    );
+    if (made == null) return;
+    _selectOnly(made);
+    _loader.editsChanged();
+  }
+
+  /// Takes the selected nodes off the map.
+  void _deleteSelected() {
+    final nodes = _selected.values.whereType<PickedNode>().toList();
+    if (nodes.isEmpty) return;
+    for (final picked in nodes) {
+      _edits.deleteNode(
+        picked.node,
+        from: [
+          for (final id in _loader.store.waysUsing(picked.id))
+            _edits.changedWay(id) ?? _loader.store.ways[id]!,
+        ],
+      );
+    }
+    setState(_selected.clear);
+    _loader.editsChanged();
+  }
+
+  /// Puts a node where the map was clicked, and takes hold of it.
+  void _placeNode(Offset at) {
+    final world = _camera.toWorld(at, _size);
+    final made = _edits.createNode(
+      latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
+      longitude: Mercator.longitude(world.dx),
+    );
+    _selectOnly(made);
+    setState(() => _tool = MapTool.browse);
+    _loader.editsChanged();
+  }
+
+  /// Adds a point to the line being drawn, or finishes it.
+  void _extendLine(Offset at) {
+    final world = _camera.toWorld(at, _size);
+    // Clicking the point the line has reached finishes it, which is how
+    // every editor ends a line. The points of a line being drawn are new and
+    // in no way yet, so they are looked for here rather than on the map.
+    if (_drawing.isNotEmpty && _isOn(_drawing.last, at)) {
+      _finishLine();
+      return;
+    }
+
+    final under = nodeAt(
+      at,
+      _camera,
+      _size,
+      _loader.store,
+      selectedWays: _selectedWays,
+      edits: _edits,
+      zoom: loadZoom,
+    );
+
+    final id =
+        under?.id ??
+        _edits
+            .createNode(
+              latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
+              longitude: Mercator.longitude(world.dx),
+            )
+            .id;
+    setState(() => _drawing.add(id));
+    _loader.editsChanged();
+  }
+
+  /// Whether a click landed on the node with [id].
+  bool _isOn(int id, Offset at) {
+    final node = _edits.movedNode(id) ?? _loader.store.nodes[id];
+    if (node == null) return false;
+    final where = _camera.toScreen(
+      Mercator.x(node.longitude),
+      Mercator.y(node.latitude),
+      _size,
+    );
+    return (where - at).distance <= nodePickTolerance;
+  }
+
+  /// Finishes the line being drawn, keeping it if it has any length.
+  void _finishLine() {
+    if (_drawing.length > 1) {
+      final way = _edits.createWay(nodeIds: _drawing);
+      _selectOnly(way);
+    }
+    setState(() {
+      _drawing.clear();
+      _tool = MapTool.browse;
+    });
+    _loader.editsChanged();
+  }
+
+  /// Gives up on the line being drawn.
+  void _abandonLine() {
+    if (_drawing.isEmpty && _tool == MapTool.browse) return;
+    setState(() {
+      _drawing.clear();
+      _tool = MapTool.browse;
+    });
+    _loader.editsChanged();
+  }
+
+  /// Selects one element and nothing else.
+  void _selectOnly(OsmElement element) {
+    final picked = switch (element) {
+      OsmNode() => PickedNode(
+        node: element,
+        worldX: Mercator.x(element.longitude),
+        worldY: Mercator.y(element.latitude),
+      ),
+      OsmWay() => PickedWay(
+        way: element,
+        points: _pointsOfWay(element),
+        width: 5,
+      ),
+      _ => null,
+    };
+    if (picked == null) return;
+    setState(() {
+      _selected
+        ..clear()
+        ..[(picked.type, picked.id)] = picked;
+    });
+  }
+
+  List<double> _pointsOfWay(OsmWay way) => [
+    for (final id in way.nodeIds)
+      if ((_edits.movedNode(id) ?? _loader.store.nodes[id])
+          case final node?) ...[
+        Mercator.x(node.longitude),
+        Mercator.y(node.latitude),
+      ],
+  ];
+
   void _scroll(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
     _moveTo(
@@ -455,12 +675,40 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                 const _UndoIntent(),
             SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
                 const _UndoIntent(),
+            const SingleActivator(LogicalKeyboardKey.delete):
+                const _DeleteIntent(),
+            const SingleActivator(LogicalKeyboardKey.backspace):
+                const _DeleteIntent(),
+            const SingleActivator(LogicalKeyboardKey.enter):
+                const _FinishIntent(),
+            const SingleActivator(LogicalKeyboardKey.numpadEnter):
+                const _FinishIntent(),
+            const SingleActivator(LogicalKeyboardKey.escape):
+                const _AbandonIntent(),
           },
           child: Actions(
             actions: <Type, Action<Intent>>{
               _UndoIntent: CallbackAction<_UndoIntent>(
                 onInvoke: (_) {
                   _undo();
+                  return null;
+                },
+              ),
+              _DeleteIntent: CallbackAction<_DeleteIntent>(
+                onInvoke: (_) {
+                  _deleteSelected();
+                  return null;
+                },
+              ),
+              _FinishIntent: CallbackAction<_FinishIntent>(
+                onInvoke: (_) {
+                  if (_tool == MapTool.addLine) _finishLine();
+                  return null;
+                },
+              ),
+              _AbandonIntent: CallbackAction<_AbandonIntent>(
+                onInvoke: (_) {
+                  _abandonLine();
                   return null;
                 },
               ),
@@ -528,7 +776,11 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                                 imagery:
                                     _imagery?.piecesFor(_camera, size) ??
                                     const [],
-                                edited: editedGeometry(_loader.store, _edits),
+                                edited: editedGeometry(
+                                  _loader.store,
+                                  _edits,
+                                  drawing: _drawing,
+                                ),
                                 selection: _selected.values.toList(),
                                 highlight: _hovered,
                                 onDrawn: (calls) => _drawCalls = calls,
@@ -537,6 +789,18 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                             ),
                           ),
                         ),
+                        if (!_tooFarToEdit)
+                          Positioned(
+                            right: 12,
+                            top: 12,
+                            child: _Tools(
+                              tool: _tool,
+                              onChanged: (tool) => setState(() {
+                                _drawing.clear();
+                                _tool = _tool == tool ? MapTool.browse : tool;
+                              }),
+                            ),
+                          ),
                         if (_tooFarToEdit)
                           Positioned.fill(
                             child: Center(
@@ -868,4 +1132,89 @@ class _Uploaded {
 /// Asks for the last change to be put back.
 class _UndoIntent extends Intent {
   const _UndoIntent();
+}
+
+/// Asks for what is selected to be taken off the map.
+class _DeleteIntent extends Intent {
+  const _DeleteIntent();
+}
+
+/// Asks for the line being drawn to be finished.
+class _FinishIntent extends Intent {
+  const _FinishIntent();
+}
+
+/// Asks for the line being drawn to be given up on.
+class _AbandonIntent extends Intent {
+  const _AbandonIntent();
+}
+
+/// The buttons that say what a click does next.
+class _Tools extends StatelessWidget {
+  final MapTool tool;
+  final ValueChanged<MapTool> onChanged;
+
+  const _Tools({required this.tool, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _ToolButton(
+          icon: Icons.fiber_manual_record,
+          label: 'Node',
+          chosen: tool == MapTool.addNode,
+          onPressed: () => onChanged(MapTool.addNode),
+        ),
+        const SizedBox(height: 6),
+        _ToolButton(
+          icon: Icons.timeline,
+          label: 'Line',
+          chosen: tool == MapTool.addLine,
+          onPressed: () => onChanged(MapTool.addLine),
+        ),
+      ],
+    );
+  }
+}
+
+/// One of them, which says whether it is the one in hand.
+class _ToolButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool chosen;
+  final VoidCallback onPressed;
+
+  const _ToolButton({
+    required this.icon,
+    required this.label,
+    required this.chosen,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: chosen ? const Color(0xff2f6fed) : const Color(0xee2b3036),
+      borderRadius: BorderRadius.circular(4),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(4),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: const Color(0xffffffff)),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 12, color: Color(0xffffffff)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
