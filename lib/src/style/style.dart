@@ -75,6 +75,38 @@ const mapStyle = <StyleLayer>[
   StyleLayer(id: 'sand', kind: LayerKind.fill, colour: 0xfff0e5c8),
   StyleLayer(id: 'water', kind: LayerKind.fill, colour: 0xffa5c9e8),
   StyleLayer(id: 'building', kind: LayerKind.fill, colour: 0xffd6cec4),
+  // The edges of the filled shapes, after the last of the fills so that one
+  // shape's fill never covers its neighbour's edge. Over imagery a fill is
+  // let through almost to nothing, and the edge is what says the shape is
+  // there at all.
+  StyleLayer(
+    id: 'green-edge',
+    kind: LayerKind.line,
+    colour: 0xff7ea855,
+    width: 1,
+    join: LineJoin.round,
+  ),
+  StyleLayer(
+    id: 'sand-edge',
+    kind: LayerKind.line,
+    colour: 0xffc8b076,
+    width: 1,
+    join: LineJoin.round,
+  ),
+  StyleLayer(
+    id: 'water-edge',
+    kind: LayerKind.line,
+    colour: 0xff4f8fc4,
+    width: 1,
+    join: LineJoin.round,
+  ),
+  StyleLayer(
+    id: 'building-edge',
+    kind: LayerKind.line,
+    colour: 0xff8a7a68,
+    width: 1.2,
+    join: LineJoin.round,
+  ),
   StyleLayer(id: 'stream', kind: LayerKind.line, colour: 0xffa5c9e8, width: 2),
   StyleLayer(id: 'path', kind: LayerKind.line, colour: 0xffb08050, width: 1.5),
   StyleLayer(id: 'rail', kind: LayerKind.line, colour: 0xff9a9a9a, width: 2),
@@ -113,6 +145,19 @@ const mapStyle = <StyleLayer>[
 /// A disc with an edge around it, so that it shows up over a light road and
 /// over a dark photograph alike.
 final pointLayers = [layerIndex('vertex-edge'), layerIndex('vertex')];
+
+/// The line layer drawing the edge of a filled layer, or null if it has none.
+///
+/// An edge is a line, so it is a fixed width on screen and is rebuilt when
+/// the map is zoomed, while the fill it goes around is built once.
+int? areaEdgeLayer(int fill) => _areaEdges[fill];
+
+final _areaEdges = <int, int>{
+  for (final layer in mapStyle)
+    if (layer.kind == LayerKind.fill)
+      if (mapStyle.any((other) => other.id == '${layer.id}-edge'))
+        layerIndex(layer.id): layerIndex('${layer.id}-edge'),
+};
 
 /// The index of the layer with the given id.
 int layerIndex(String id) => mapStyle.indexWhere((layer) => layer.id == id);

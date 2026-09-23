@@ -109,12 +109,14 @@ TessellationReport tessellate(
         into,
         through,
       ),
-      OsmRelation() when fills => _relation(
+      OsmRelation() => _relation(
         element,
         data,
         builders,
         zoom,
         pixelsPerTile,
+        fills,
+        lines,
         into,
       ),
       _ => _Outcome.skipped,
@@ -153,7 +155,9 @@ _Outcome _way(
   int Function(int nodeId) waysThrough,
 ) {
   final asArea = way.isClosed && enclosesArea(way.tags);
-  if (asArea ? !fills : !lines) return _Outcome.skipped;
+  // An area is a fill and an edge around it, so it has something to build in
+  // either pass.
+  if (asArea ? !fills && !lines : !lines) return _Outcome.skipped;
   final layers = asArea ? fillLayersFor(way.tags) : lineLayersFor(way.tags);
   if (layers.isEmpty) return _Outcome.skipped;
 
@@ -163,7 +167,16 @@ _Outcome _way(
   if (asArea) {
     final area = data.areaOf(way);
     if (area == null) return _Outcome.incomplete;
-    return _fill(area, layers, builders, zoom, pixelsPerTile, into);
+    return _fill(
+      area,
+      layers,
+      builders,
+      zoom,
+      pixelsPerTile,
+      fills,
+      lines,
+      into,
+    );
   }
 
   final tile = into ?? _tileOf(nodes.first, zoom);
@@ -192,15 +205,18 @@ _Outcome _relation(
   Map<TileId, _TileBuilder> builders,
   int zoom,
   double pixelsPerTile,
+  bool fills,
+  bool lines,
   TileId? into,
 ) {
+  if (!fills && !lines) return _Outcome.skipped;
   if (relation.tags['type'] != 'multipolygon') return _Outcome.skipped;
   final layers = fillLayersFor(relation.tags);
   if (layers.isEmpty) return _Outcome.skipped;
 
   final area = data.areaOf(relation);
   if (area == null) return _Outcome.incomplete;
-  return _fill(area, layers, builders, zoom, pixelsPerTile, into);
+  return _fill(area, layers, builders, zoom, pixelsPerTile, fills, lines, into);
 }
 
 _Outcome _fill(
@@ -209,6 +225,8 @@ _Outcome _fill(
   Map<TileId, _TileBuilder> builders,
   int zoom,
   double pixelsPerTile,
+  bool fills,
+  bool lines,
   TileId? into,
 ) {
   if (area.polygons.isEmpty) return _Outcome.incomplete;
@@ -223,10 +241,30 @@ _Outcome _fill(
     final outer = _project(polygon.outer, tile);
     final inners = [for (final inner in polygon.inners) _project(inner, tile)];
     for (final layer in layers) {
-      builder.fill(layer, outer, inners);
+      if (fills) builder.fill(layer, outer, inners);
+      if (!lines) continue;
+      final edge = areaEdgeLayer(layer);
+      if (edge == null) continue;
+      builder.stroke(edge, _ring(outer));
+      for (final inner in inners) {
+        builder.stroke(edge, _ring(inner));
+      }
     }
   }
   return _Outcome.drawn;
+}
+
+/// A ring's points as a line that comes back to where it started.
+///
+/// A ring is held without repeating its first point; a stroked line needs it
+/// repeated, or the shape is drawn with one side missing.
+List<double> _ring(List<double> points) {
+  if (points.length < 4) return points;
+  final first = points[0], second = points[1];
+  if (points[points.length - 2] == first && points.last == second) {
+    return points;
+  }
+  return [...points, first, second];
 }
 
 TileId _tileOf(OsmNode node, int zoom) =>

@@ -173,7 +173,23 @@ void main() {
     );
     final tile = report.tiles.values.single;
     expect(tile.fills.map((m) => m.layer), contains(layerIndex('building')));
-    expect(tile.lines, isEmpty);
+    // Its edge, and nothing from the layers a road would be drawn in.
+    expect(tile.lines.map((m) => m.layer), [layerIndex('building-edge')]);
+
+    // The edge is a fixed width on screen, so a rebuild for a new zoom has
+    // to produce it again even though the fill it goes around is kept.
+    final restroked = _build(
+      OsmSubset(
+        matches: const [way],
+        nodes: {for (final node in nodes) node.id: node},
+        ways: const {10: way},
+        relations: const {},
+      ),
+      fills: false,
+    );
+    expect(restroked.tiles.values.single.lines.map((m) => m.layer), [
+      layerIndex('building-edge'),
+    ]);
   });
 
   group('points that can be taken hold of', () {
