@@ -11,6 +11,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:osm/osm.dart';
 
 import '../data/map_loader.dart';
+import '../edit/edited_geometry.dart';
 import '../imagery/imagery_layer.dart';
 import '../geometry/tile.dart';
 import '../render/map_painter.dart';
@@ -99,10 +100,16 @@ class MapView extends StatefulWidget {
 
 class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   late Camera _camera = widget.initialCamera;
+  late final OsmEdits _edits = OsmEdits(
+    onChanged: () {
+      if (mounted) setState(() {});
+    },
+  );
   late final MapLoader _loader = MapLoader(
     api: widget.api,
     cache: widget.cache,
     place: widget.place,
+    edits: _edits,
     onChanged: () {
       if (mounted) setState(() {});
     },
@@ -125,6 +132,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   double? _easeFrom;
   double? _easeTo;
   Picked? _hovered;
+  PickedNode? _dragging;
+  Offset? _pressedAt;
+  var _dragged = false;
   final _selected = <(OsmElementType, int), Picked>{};
 
   /// The ways that are selected, which is what says whether the nodes along
@@ -327,6 +337,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
             _size,
             _loader.store,
             selectedWays: _selectedWays,
+            edits: _edits,
             zoom: loadZoom,
           );
     if (found?.id == _hovered?.id && found?.type == _hovered?.type) {
@@ -351,6 +362,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       _size,
       _loader.store,
       selectedWays: _selectedWays,
+      edits: _edits,
       zoom: loadZoom,
     );
     final adding = HardwareKeyboard.instance.isShiftPressed;
@@ -368,6 +380,32 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           ..[key] = picked;
       }
     });
+  }
+
+  /// Moves a node to follow the pointer.
+  ///
+  /// The first move of a drag takes the way it belongs to out of the tile it
+  /// was built into, so that the old shape stops being drawn; the rest only
+  /// move the node, which is a line or two a frame.
+  void _dragNode(PickedNode held, Offset to) {
+    final world = _camera.toWorld(to, _size);
+    final first = !_dragged;
+    _dragged = true;
+    setState(() {
+      _edits.moveNode(
+        held.node,
+        latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
+        longitude: Mercator.longitude(world.dx),
+        continuing: !first,
+      );
+    });
+    if (first) _loader.editsChanged();
+  }
+
+  /// Puts back the last change made.
+  void _undo() {
+    if (!_edits.undo()) return;
+    _loader.editsChanged();
   }
 
   void _scroll(PointerSignalEvent event) {
@@ -388,80 +426,168 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           _imagery?.look(_camera, size);
           _lookSoon();
         }
-        return Listener(
-          onPointerSignal: _scroll,
-          child: MouseRegion(
-            onHover: (event) => _hover(event.localPosition),
-            onExit: (_) {
-              if (_hovered != null) setState(() => _hovered = null);
+        return Shortcuts(
+          shortcuts: <ShortcutActivator, Intent>{
+            SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+                const _UndoIntent(),
+            SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
+                const _UndoIntent(),
+          },
+          child: Actions(
+            actions: <Type, Action<Intent>>{
+              _UndoIntent: CallbackAction<_UndoIntent>(
+                onInvoke: (_) {
+                  _undo();
+                  return null;
+                },
+              ),
             },
-            child: GestureDetector(
-              onTapUp: (details) => _tap(details.localPosition),
-              onScaleStart: (_) => _zoomFrom = _camera.zoom,
-              onScaleUpdate: (details) {
-                var camera = _camera.panned(details.focalPointDelta);
-                if (details.scale != 1) {
-                  final target =
-                      _zoomFrom! + math.log(details.scale) / math.ln2;
-                  camera = camera.zoomed(
-                    target - camera.zoom,
-                    details.localFocalPoint,
-                    size,
-                  );
-                }
-                _moveTo(camera);
-              },
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: RepaintBoundary(
-                      child: CustomPaint(
-                        painter: MapPainter(
-                          camera: _camera,
-                          tiles: _meshes,
-                          imagery:
-                              _imagery?.piecesFor(_camera, size) ?? const [],
-                          selection: _selected.values.toList(),
-                          highlight: _hovered,
-                          onDrawn: (calls) => _drawCalls = calls,
+            child: Focus(
+              autofocus: true,
+              child: Listener(
+                onPointerDown: (event) => _pressedAt = event.localPosition,
+                onPointerSignal: _scroll,
+                child: MouseRegion(
+                  onHover: (event) => _hover(event.localPosition),
+                  onExit: (_) {
+                    if (_hovered != null) setState(() => _hovered = null);
+                  },
+                  child: GestureDetector(
+                    onTapUp: (details) => _tap(details.localPosition),
+                    onScaleStart: (details) {
+                      _zoomFrom = _camera.zoom;
+                      _dragged = false;
+                      // A drag that starts on a node moves the node; anywhere else
+                      // it moves the map.
+                      // From where the pointer went down rather than from
+                      // where the gesture was recognised: a drag is only a
+                      // drag once it has moved, by which time it has left
+                      // anything as small as a node behind.
+                      _dragging = _tooFarToEdit
+                          ? null
+                          : nodeAt(
+                              _pressedAt ?? details.localFocalPoint,
+                              _camera,
+                              _size,
+                              _loader.store,
+                              selectedWays: _selectedWays,
+                              edits: _edits,
+                              zoom: loadZoom,
+                            );
+                    },
+                    onScaleUpdate: (details) {
+                      final held = _dragging;
+                      if (held != null && details.pointerCount < 2) {
+                        _dragNode(held, details.localFocalPoint);
+                        return;
+                      }
+                      var camera = _camera.panned(details.focalPointDelta);
+                      if (details.scale != 1) {
+                        final target =
+                            _zoomFrom! + math.log(details.scale) / math.ln2;
+                        camera = camera.zoomed(
+                          target - camera.zoom,
+                          details.localFocalPoint,
+                          size,
+                        );
+                      }
+                      _moveTo(camera);
+                    },
+                    onScaleEnd: (_) => _dragging = null,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: RepaintBoundary(
+                            child: CustomPaint(
+                              painter: MapPainter(
+                                camera: _camera,
+                                tiles: _meshes,
+                                imagery:
+                                    _imagery?.piecesFor(_camera, size) ??
+                                    const [],
+                                edited: editedGeometry(_loader.store, _edits),
+                                selection: _selected.values.toList(),
+                                highlight: _hovered,
+                                onDrawn: (calls) => _drawCalls = calls,
+                              ),
+                              size: Size.infinite,
+                            ),
+                          ),
                         ),
-                        size: Size.infinite,
-                      ),
+                        if (_tooFarToEdit)
+                          Positioned.fill(
+                            child: Center(
+                              child: _ZoomToEdit(onPressed: _zoomToEdit),
+                            ),
+                          ),
+                        if (_selected.isNotEmpty)
+                          Positioned(
+                            left: 12,
+                            bottom: 12,
+                            child: _Tags(selected: _selected.values.toList()),
+                          ),
+                        if (_source?.attribution case final credit?)
+                          Positioned(
+                            right: 8,
+                            bottom: 6,
+                            child: _Attribution(credit),
+                          ),
+                        Positioned(
+                          left: 12,
+                          top: 12,
+                          child: _Readout(
+                            camera: _camera,
+                            stats: _stats,
+                            loader: _loader,
+                            drawCalls: _drawCalls,
+                            imagery: _imageryState,
+                            edits: _edits.length,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  if (_tooFarToEdit)
-                    Positioned.fill(
-                      child: Center(child: _ZoomToEdit(onPressed: _zoomToEdit)),
-                    ),
-                  if (_selected.isNotEmpty)
-                    Positioned(
-                      left: 12,
-                      bottom: 12,
-                      child: _Tags(selected: _selected.values.toList()),
-                    ),
-                  if (_source?.attribution case final credit?)
-                    Positioned(
-                      right: 8,
-                      bottom: 6,
-                      child: _Attribution(credit),
-                    ),
-                  Positioned(
-                    left: 12,
-                    top: 12,
-                    child: _Readout(
-                      camera: _camera,
-                      stats: _stats,
-                      loader: _loader,
-                      drawCalls: _drawCalls,
-                      imagery: _imageryState,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Turns a fetched tile into a picture.
+Future<ui.Image> _decode(Uint8List bytes) async {
+  final codec = await ui.instantiateImageCodec(bytes);
+  try {
+    return (await codec.getNextFrame()).image;
+  } finally {
+    codec.dispose();
+  }
+}
+
+/// The credit the imagery's licence asks for, which has to be on screen
+/// whenever the imagery is.
+class _Attribution extends StatelessWidget {
+  final String text;
+
+  const _Attribution(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xb3ffffff),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 11, color: Color(0xff333333)),
+        ),
+      ),
     );
   }
 }
@@ -477,6 +603,7 @@ class _Readout extends StatefulWidget {
   final MapLoader loader;
   final int drawCalls;
   final String imagery;
+  final int edits;
 
   const _Readout({
     required this.camera,
@@ -484,6 +611,7 @@ class _Readout extends StatefulWidget {
     required this.loader,
     required this.drawCalls,
     required this.imagery,
+    required this.edits,
   });
 
   @override
@@ -546,6 +674,13 @@ class _ReadoutState extends State<_Readout> {
               ),
               Text('${loader.store}'),
               Text(widget.imagery),
+              if (widget.edits > 0)
+                Text(
+                  '${widget.edits} '
+                  '${widget.edits == 1 ? 'change' : 'changes'}, '
+                  'ctrl+z to undo',
+                  style: const TextStyle(color: Color(0xffffd080)),
+                ),
               if (loader.cache != null)
                 Text(
                   '${loader.cache!.tiles.length} boxes held, '
@@ -564,41 +699,6 @@ class _ReadoutState extends State<_Readout> {
                 ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Turns a fetched tile into a picture.
-Future<ui.Image> _decode(Uint8List bytes) async {
-  final codec = await ui.instantiateImageCodec(bytes);
-  try {
-    return (await codec.getNextFrame()).image;
-  } finally {
-    codec.dispose();
-  }
-}
-
-/// The credit the imagery's licence asks for, which has to be on screen
-/// whenever the imagery is.
-class _Attribution extends StatelessWidget {
-  final String text;
-
-  const _Attribution(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xb3ffffff),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        child: Text(
-          text,
-          style: const TextStyle(fontSize: 11, color: Color(0xff333333)),
         ),
       ),
     );
@@ -740,4 +840,9 @@ class _Uploaded {
   final GpuTileMesh gpu;
 
   _Uploaded(this.source, this.gpu);
+}
+
+/// Asks for the last change to be put back.
+class _UndoIntent extends Intent {
+  const _UndoIntent();
 }

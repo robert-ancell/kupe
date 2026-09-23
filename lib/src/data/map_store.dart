@@ -16,6 +16,7 @@ class MapStore {
   final _relations = <int, OsmRelation>{};
   final _drawn = <(OsmElementType, int), TileId>{};
   final _byTile = <TileId, List<OsmElement>>{};
+  final _nodeWays = <int, List<int>>{};
   final _nodeUses = <int, int>{};
   final _nodeEnds = <int, int>{};
 
@@ -69,6 +70,11 @@ class MapStore {
   /// point on it.
   List<OsmElement> drawnIn(TileId tile) => _byTile[tile] ?? const [];
 
+  /// The ways held that run through the node with [id].
+  ///
+  /// What has to be drawn again when that node moves.
+  List<int> waysUsing(int id) => _nodeWays[id] ?? const [];
+
   /// How many of the ways held run through the node with [id].
   ///
   /// More than one means the ways meet there, which is a place worth being
@@ -87,6 +93,12 @@ class MapStore {
         _nodeUses[id] = uses;
       } else {
         _nodeUses.remove(id);
+      }
+      if (by > 0) {
+        (_nodeWays[id] ??= <int>[]).add(way.id);
+      } else {
+        _nodeWays[id]?.remove(way.id);
+        if (_nodeWays[id]?.isEmpty ?? false) _nodeWays.remove(id);
       }
     }
     for (final id in {way.nodeIds.first, way.nodeIds.last}) {

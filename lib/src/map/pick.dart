@@ -122,6 +122,7 @@ Picked? pickAt(
   Size size,
   MapStore store, {
   Set<int> selectedWays = const {},
+  OsmEdits? edits,
   int zoom = 16,
 }) =>
     nodeAt(
@@ -130,9 +131,10 @@ Picked? pickAt(
       size,
       store,
       selectedWays: selectedWays,
+      edits: edits,
       zoom: zoom,
     ) ??
-    wayAt(point, camera, size, store, zoom: zoom);
+    wayAt(point, camera, size, store, edits: edits, zoom: zoom);
 
 /// The node under [point], or null if there is none to be had there.
 PickedNode? nodeAt(
@@ -141,6 +143,7 @@ PickedNode? nodeAt(
   Size size,
   MapStore store, {
   Set<int> selectedWays = const {},
+  OsmEdits? edits,
   int zoom = 16,
 }) {
   final world = camera.toWorld(point, size);
@@ -161,7 +164,7 @@ PickedNode? nodeAt(
         if (!isNodeSelectable(store, element, i, selectedWays: selectedWays)) {
           continue;
         }
-        final node = store.nodes[id];
+        final node = edits?.movedNode(id) ?? store.nodes[id];
         if (node == null) continue;
 
         final x = Mercator.x(node.longitude);
@@ -189,6 +192,7 @@ PickedWay? wayAt(
   Camera camera,
   Size size,
   MapStore store, {
+  OsmEdits? edits,
   int zoom = 16,
 }) {
   final world = camera.toWorld(point, size);
@@ -204,7 +208,7 @@ PickedWay? wayAt(
       final layers = lineLayersFor(element.tags);
       if (layers.isEmpty) continue;
 
-      final points = _worldPoints(element, store);
+      final points = worldPointsOf(element, store, edits);
       if (points == null) continue;
 
       // Anywhere the line is drawn counts, so half its width is taken off
@@ -244,10 +248,14 @@ List<TileId> _tilesAround(Offset world, double reach, int zoom) {
 }
 
 /// A way's nodes in world coordinates, or null if any of them is missing.
-List<double>? _worldPoints(OsmWay way, MapStore store) {
+///
+/// From where the nodes are now, which is where they have been moved to if
+/// they have been moved at all.
+List<double>? worldPointsOf(OsmWay way, MapStore store, [OsmEdits? edits]) {
   final points = List<double>.filled(way.nodeIds.length * 2, 0);
   for (var i = 0; i < way.nodeIds.length; i++) {
-    final node = store.nodes[way.nodeIds[i]];
+    final id = way.nodeIds[i];
+    final node = edits?.movedNode(id) ?? store.nodes[id];
     if (node == null) return null;
     points[i * 2] = Mercator.x(node.longitude);
     points[i * 2 + 1] = Mercator.y(node.latitude);

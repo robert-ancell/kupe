@@ -59,6 +59,8 @@ class TessellationReport {
 /// changes what lines have to look like but leaves filled shapes alone, so a
 /// rebuild on zoom only has to redo the lines.
 ///
+/// [skip] leaves elements out, for anything being drawn some other way.
+///
 /// [waysThrough] says how many ways run through a node, which decides where
 /// a line is marked as able to be taken hold of. Without it only what is in
 /// [data] is counted, which misses ways meeting across the edge of a box.
@@ -75,6 +77,7 @@ TessellationReport tessellate(
   bool lines = true,
   TileId? into,
   int Function(int nodeId)? waysThrough,
+  bool Function(OsmElement element)? skip,
 }) {
   final through = waysThrough ?? _countWithin(data);
   final builders = <TileId, _TileBuilder>{};
@@ -84,6 +87,12 @@ TessellationReport tessellate(
 
   for (final element in data.matches) {
     if (element.tags.isEmpty) {
+      skipped += 1;
+      continue;
+    }
+    // Anything that has been changed is drawn from what it is now, a frame
+    // at a time, so it is left out of what is built once and kept.
+    if (skip != null && skip(element)) {
       skipped += 1;
       continue;
     }

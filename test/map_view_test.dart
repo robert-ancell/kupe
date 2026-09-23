@@ -530,8 +530,11 @@ void main() {
       final way =
           _painterIn(tester).selection.whereType<PickedWay>().firstOrNull ??
           _painterIn(tester).highlight as PickedWay;
-      return _painterIn(tester).camera
-          .toScreen(way.points[0], way.points[1], const Size(1000, 800));
+      return _painterIn(tester).camera.toScreen(
+        way.points[0],
+        way.points[1],
+        tester.getSize(find.byType(MapView)),
+      );
     }
 
     testWidgets('takes the line, not a node along the middle of it', (
@@ -587,6 +590,111 @@ void main() {
       await tester.tapAt(const Offset(500, 400));
       await tester.pump();
       expect(_painterIn(tester).selection.single, isA<PickedWay>());
+    });
+  });
+
+  group('dragging a node', () {
+    Future<void> openOver(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: _shortRoad),
+              initialCamera: Camera.at(
+                latitude: _roadLatitude,
+                longitude: 174.76,
+                zoom: 18,
+              ),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+    }
+
+    /// Where the road ends, which is always there to take hold of.
+    Offset endOfRoad(WidgetTester tester) {
+      final way =
+          _painterIn(tester).selection.whereType<PickedWay>().firstOrNull ??
+          _painterIn(tester).highlight as PickedWay;
+      return _painterIn(tester).camera.toScreen(
+        way.points[0],
+        way.points[1],
+        tester.getSize(find.byType(MapView)),
+      );
+    }
+
+    testWidgets('moves the node the drag started on', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      final end = endOfRoad(tester);
+      expect(_painterIn(tester).edited.isEmpty, isTrue);
+
+      await tester.dragFrom(end, const Offset(40, 30));
+      await tester.pump();
+
+      final edited = _painterIn(tester).edited;
+      expect(edited.nodes.length, 1);
+      expect(edited.ways, isNotEmpty, reason: 'the road moves with it');
+    });
+
+    testWidgets('moves the map when the drag starts on nothing', (
+      tester,
+    ) async {
+      await openOver(tester);
+      final before = _painterIn(tester).camera;
+
+      await tester.dragFrom(const Offset(500, 700), const Offset(40, 30));
+      await tester.pump();
+
+      expect(_painterIn(tester).camera, isNot(before));
+      expect(_painterIn(tester).edited.isEmpty, isTrue);
+    });
+
+    testWidgets('counts a drag as one change', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      final end = endOfRoad(tester);
+
+      await tester.dragFrom(end, const Offset(40, 30));
+      await tester.pump();
+      expect(find.text('1 change, ctrl+z to undo'), findsOneWidget);
+    });
+
+    testWidgets('puts the node back when the change is undone', (tester) async {
+      await openOver(tester);
+      await tester.tapAt(const Offset(500, 400));
+      await tester.pump();
+      await tester.dragFrom(endOfRoad(tester), const Offset(40, 30));
+      await tester.pump();
+      expect(_painterIn(tester).edited.isEmpty, isFalse);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(_painterIn(tester).edited.isEmpty, isTrue);
+      expect(find.textContaining('ctrl+z'), findsNothing);
+    });
+
+    testWidgets('changes nothing while too far out to edit', (tester) async {
+      await openOver(tester);
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(
+          position: Offset(500, 400),
+          scrollDelta: Offset(0, 800),
+        ),
+      );
+      await tester.pump();
+
+      await tester.dragFrom(const Offset(500, 400), const Offset(40, 30));
+      await tester.pump();
+      expect(_painterIn(tester).edited.isEmpty, isTrue);
     });
   });
 }

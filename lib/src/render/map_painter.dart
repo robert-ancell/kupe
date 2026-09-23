@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 
 import '../geometry/tile.dart';
+import '../edit/edited_geometry.dart';
 import '../imagery/imagery_layer.dart';
 import '../map/pick.dart';
 import '../map/camera.dart';
@@ -99,6 +100,12 @@ class MapPainter extends CustomPainter {
   /// The background imagery to draw under the map, if any.
   final List<ImageryPiece<ui.Image>> imagery;
 
+  /// What has been changed, drawn a frame at a time.
+  ///
+  /// Everything else was built into a tile once and is still on the graphics
+  /// card. Only what is moving is built again, and only while it moves.
+  final EditedGeometry edited;
+
   /// What is selected, drawn over the map.
   final List<Picked> selection;
 
@@ -113,6 +120,7 @@ class MapPainter extends CustomPainter {
     required this.camera,
     required this.tiles,
     this.imagery = const [],
+    this.edited = const EditedGeometry(ways: [], nodes: []),
     this.selection = const [],
     this.highlight,
     this.onDrawn,
@@ -210,6 +218,30 @@ class MapPainter extends CustomPainter {
         calls += _draw(canvas, size, tile, tile.fills, layer, paint);
         calls += _draw(canvas, size, tile, tile.lines, layer, paint);
       }
+      // What has been changed was left out of the tiles, so it goes in here,
+      // in its own layer's turn, and looks like the rest of the map.
+      for (final way in edited.ways) {
+        if (!way.layers.contains(layer)) continue;
+        _drawLine(canvas, size, way.points, paint, mapStyle[layer].width);
+        calls += 1;
+      }
+    }
+
+    // And the points of what has been changed, which are always there to be
+    // taken hold of because they have just been taken hold of.
+    for (final (x, y) in edited.nodes) {
+      final at = camera.toScreen(x, y, size);
+      canvas.drawCircle(
+        at,
+        mapStyle[layerIndex('vertex-edge')].width / 2,
+        _vertexEdgePaint,
+      );
+      canvas.drawCircle(
+        at,
+        mapStyle[layerIndex('vertex')].width / 2,
+        _nodeFill,
+      );
+      calls += 1;
     }
 
     // The nodes of a selected line go over everything: they are what is
@@ -304,8 +336,19 @@ class MapPainter extends CustomPainter {
     PickedWay picked,
     Paint paint,
     double width,
+  ) => _drawLine(canvas, size, picked.points, paint, width);
+
+  /// Draws a line from world coordinates, a path a frame.
+  ///
+  /// For the few lines that cannot be built once and kept: what is being
+  /// pointed at, what is selected, and what is being moved.
+  void _drawLine(
+    Canvas canvas,
+    Size size,
+    List<double> points,
+    Paint paint,
+    double width,
   ) {
-    final points = picked.points;
     if (points.length < 4) return;
 
     final path = Path();
@@ -350,6 +393,7 @@ class MapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(MapPainter old) =>
+      !identical(old.edited, edited) ||
       old.highlight?.id != highlight?.id ||
       old.highlight?.type != highlight?.type ||
       !identical(old.selection, selection) ||

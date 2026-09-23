@@ -94,6 +94,13 @@ class MapLoader {
   /// Where to remember the place the map was left, if anywhere.
   final File? place;
 
+  /// The changes made to the map.
+  ///
+  /// What has been changed is left out of the tiles that are built and kept,
+  /// because those are built once and a change has to show at once. It is
+  /// drawn from what it is now instead.
+  final OsmEdits edits;
+
   /// Everything read so far.
   final MapStore store = MapStore();
 
@@ -130,7 +137,57 @@ class MapLoader {
     required this.onChanged,
     this.cache,
     this.place,
-  });
+    OsmEdits? edits,
+  }) : edits = edits ?? OsmEdits();
+
+  /// The elements left out of the tiles because they have been changed.
+  Set<(OsmElementType, int)> get hidden => _hidden;
+
+  var _hidden = <(OsmElementType, int)>{};
+
+  bool _isHidden(OsmElement element) =>
+      _hidden.contains((element.type, element.id));
+
+  /// Builds again whatever the latest change affects.
+  ///
+  /// Only the tiles holding something that has been changed, or that was
+  /// changed and has been put back, and only when the changes themselves
+  /// change rather than on every frame of a drag.
+  void editsChanged() {
+    final now = edits.touching(store.waysUsing);
+    final affected = {..._hidden, ...now};
+    _hidden = now;
+    if (affected.isEmpty) {
+      onChanged();
+      return;
+    }
+
+    for (final tile in _built.keys.toList()) {
+      final drawn = store.drawnIn(tile);
+      if (!drawn.any((e) => affected.contains((e.type, e.id)))) continue;
+      final pixels =
+          _camera?.pixelsPerTile(tile.zoom) ?? _built[tile]!.pixelsPerTile;
+      final report = tessellate(
+        store.subsetOf(drawn),
+        zoom: tile.zoom,
+        pixelsPerTile: pixels,
+        into: tile,
+        waysThrough: store.waysThrough,
+        skip: _isHidden,
+      );
+      // A tile with everything in it changed builds nothing at all, which is
+      // an empty tile rather than a reason to keep the one that is wrong.
+      _built[tile] =
+          report.tiles[tile] ??
+          TileMesh(
+            id: tile,
+            pixelsPerTile: pixels,
+            fills: const [],
+            lines: const [],
+          );
+    }
+    onChanged();
+  }
 
   /// Stops the loader waiting to try again, and gives up on anything still
   /// being read.
@@ -346,6 +403,7 @@ class MapLoader {
         fills: false,
         into: mesh.id,
         waysThrough: store.waysThrough,
+        skip: _isHidden,
       );
       _built[mesh.id] = mesh.withLines(
         report.tiles[mesh.id]?.lines ?? const [],
@@ -510,6 +568,7 @@ class MapLoader {
       // From everything held rather than everything in this box, so that two
       // roads meeting just over its edge are still a junction.
       waysThrough: store.waysThrough,
+      skip: _isHidden,
     );
     final mesh = report.tiles[tile];
     if (mesh != null) _built[tile] = mesh;
