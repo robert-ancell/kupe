@@ -71,7 +71,10 @@ class PickedWay extends Picked {
   /// Its nodes in world coordinates, x and y in turn.
   final List<double> points;
 
-  /// How wide it is drawn on the ground, in metres.
+  /// How wide it is drawn on screen, in pixels.
+  ///
+  /// The widest of the layers it is drawn in, so that an outline around it
+  /// goes round the casing rather than through it.
   final double width;
 
   /// Creates a picked way.
@@ -206,9 +209,11 @@ PickedWay? wayAt(
 
       // Anywhere the line is drawn counts, so half its width is taken off
       // the distance before anything is compared.
-      final width = mapStyle[layers.last].width;
-      final metres = Mercator.metresPerUnit(camera.latitude);
-      final half = width / 2 / metres;
+      var width = 0.0;
+      for (final layer in layers) {
+        if (mapStyle[layer].width > width) width = mapStyle[layer].width;
+      }
+      final half = width / 2 / camera.scale;
       final distance = _distanceTo(points, world) - half;
       if (distance > reach || distance >= nearestDistance) continue;
 

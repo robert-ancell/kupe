@@ -1,7 +1,7 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
-import 'package:osm/osm.dart';
 
 import '../geometry/tile.dart';
 import '../imagery/imagery_layer.dart';
@@ -63,6 +63,25 @@ class GpuTileMesh {
     }
   }
 }
+
+/// How wide something [width] across is outlined, in pixels.
+///
+/// The outline is proportional to what it goes round, so that one about a
+/// motorway reads the same as one about a footpath rather than swamping it,
+/// with a floor so that a hairline still has something to see.
+double outlineWidth(double width, double spread) =>
+    width + math.max(width * spread, leastOutline);
+
+/// How much wider than the line itself a selected line is outlined, as a
+/// share of the line's own width.
+const selectionSpread = 1.0;
+
+/// And how much wider for one that is merely pointed at, which is less, so
+/// that pointing at something selected shows both at once.
+const highlightSpread = 0.5;
+
+/// The narrowest an outline is ever drawn.
+const leastOutline = 4.0;
 
 /// Draws the tiles that are on screen.
 ///
@@ -156,6 +175,18 @@ class MapPainter extends CustomPainter {
       calls += 1;
     }
 
+    // Under the map rather than over it. What is picked out reads as an
+    // outline around the line, which means the line itself has to be drawn
+    // on top of it.
+    for (final picked in selection) {
+      _drawPicked(canvas, size, picked, _selectionPaint, selectionSpread);
+      calls += 1;
+    }
+    if (highlight != null) {
+      _drawPicked(canvas, size, highlight!, _highlightPaint, highlightSpread);
+      calls += 1;
+    }
+
     final paints = imagery.isEmpty ? _paints : _overImagery;
     for (var layer = 0; layer < mapStyle.length; layer++) {
       final paint = paints[layer];
@@ -164,16 +195,10 @@ class MapPainter extends CustomPainter {
         calls += _draw(canvas, size, tile, tile.lines, layer, paint);
       }
     }
-    // The nodes of a selected line are shown as it is selected, which is
-    // also exactly when they can be taken hold of.
+    // The nodes of a selected line go over everything: they are what is
+    // taken hold of, and they are only there while it is selected.
     for (final picked in selection) {
       if (picked is PickedWay) _drawNodes(canvas, size, picked);
-      _drawPicked(canvas, size, picked, _selectionPaint);
-      calls += 1;
-    }
-    if (highlight != null) {
-      _drawPicked(canvas, size, highlight!, _highlightPaint);
-      calls += 1;
     }
     onDrawn?.call(calls);
   }
@@ -204,19 +229,29 @@ class MapPainter extends CustomPainter {
   }
 
   /// Draws what has been picked out, whether pointed at or selected.
-  void _drawPicked(Canvas canvas, Size size, Picked picked, Paint paint) {
+  void _drawPicked(
+    Canvas canvas,
+    Size size,
+    Picked picked,
+    Paint paint,
+    double spread,
+  ) {
     switch (picked) {
       case PickedWay():
-        _drawWay(canvas, size, picked, paint);
+        _drawWay(
+          canvas,
+          size,
+          picked,
+          paint,
+          outlineWidth(picked.width, spread),
+        );
       case PickedNode():
         final at = camera.toScreen(picked.worldX, picked.worldY, size);
-        canvas.drawCircle(at, _nodeRadius, _nodeFill);
+        final marked = mapStyle[layerIndex('vertex-edge')].width;
         canvas.drawCircle(
           at,
-          _nodeRadius,
-          paint
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 3,
+          outlineWidth(marked, spread) / 2,
+          paint..style = PaintingStyle.fill,
         );
     }
   }
@@ -237,7 +272,13 @@ class MapPainter extends CustomPainter {
   /// One path a frame, in screen coordinates. There are only ever a few, and
   /// they move with the camera, so building them is cheaper than holding
   /// geometry that is out of date as soon as the map moves.
-  void _drawWay(Canvas canvas, Size size, PickedWay picked, Paint paint) {
+  void _drawWay(
+    Canvas canvas,
+    Size size,
+    PickedWay picked,
+    Paint paint,
+    double width,
+  ) {
     final points = picked.points;
     if (points.length < 4) return;
 
@@ -251,11 +292,12 @@ class MapPainter extends CustomPainter {
       }
     }
 
-    // As wide as the thing is drawn, and never thinner than something that
-    // can be seen.
-    final metres = Mercator.metresPerUnit(camera.latitude);
-    final wide = picked.width / metres * camera.scale + 4;
-    canvas.drawPath(path, _highlightPaint..strokeWidth = wide < 6 ? 6 : wide);
+    canvas.drawPath(
+      path,
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width,
+    );
   }
 
   /// Draws one tile of imagery, or the matching part of a coarser one that is
