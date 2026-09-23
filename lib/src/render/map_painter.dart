@@ -106,6 +106,11 @@ class MapPainter extends CustomPainter {
   /// card. Only what is moving is built again, and only while it moves.
   final EditedGeometry edited;
 
+  /// The line from the last point of what is being drawn to the pointer.
+  ///
+  /// Two world positions, or nothing when nothing is being drawn.
+  final List<double> ghost;
+
   /// What is selected, drawn over the map.
   final List<Picked> selection;
 
@@ -121,6 +126,7 @@ class MapPainter extends CustomPainter {
     required this.tiles,
     this.imagery = const [],
     this.edited = const EditedGeometry(ways: [], nodes: []),
+    this.ghost = const [],
     this.selection = const [],
     this.highlight,
     this.onDrawn,
@@ -145,6 +151,15 @@ class MapPainter extends CustomPainter {
   ];
 
   static final _imageryPaint = Paint()..filterQuality = FilterQuality.low;
+
+  /// The line that has not been drawn yet, in the colour of the line being
+  /// drawn but faint, so that it reads as what would happen rather than as
+  /// what has.
+  static final _ghostPaint = Paint()
+    ..color = const Color(0x99ffffff)
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..strokeWidth = mapStyle[layerIndex('minor')].width;
 
   /// What the pointer is over is drawn in red over the top, wider than the
   /// thing itself so that it reads as an outline around it rather than as a
@@ -225,6 +240,15 @@ class MapPainter extends CustomPainter {
         _drawLine(canvas, size, way.points, paint, mapStyle[layer].width);
         calls += 1;
       }
+    }
+
+    if (ghost.length == 4) {
+      canvas.drawLine(
+        camera.toScreen(ghost[0], ghost[1], size),
+        camera.toScreen(ghost[2], ghost[3], size),
+        _ghostPaint,
+      );
+      calls += 1;
     }
 
     // And the points of what has been changed, which are always there to be
@@ -394,6 +418,7 @@ class MapPainter extends CustomPainter {
   @override
   bool shouldRepaint(MapPainter old) =>
       !identical(old.edited, edited) ||
+      !identical(old.ghost, ghost) ||
       old.highlight?.id != highlight?.id ||
       old.highlight?.type != highlight?.type ||
       !identical(old.selection, selection) ||

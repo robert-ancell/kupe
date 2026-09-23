@@ -161,6 +161,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// The nodes of the line being drawn, if one is.
   final _drawing = <int>[];
 
+  /// How many changes had been made when the line being drawn was started,
+  /// so that all of it can be gathered into one when it is finished.
+  int? _drawingFrom;
+
+  /// Where the pointer is, for the line to follow while it is being drawn.
+  Offset? _pointerAt;
+
   DateTime? _tappedAt;
   Offset? _tappedOn;
 
@@ -362,6 +369,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Only while the map is close enough to edit: further out the lines are
   /// too fine to point at, and there is nothing to be done with one anyway.
   void _hover(Offset at) {
+    if (_drawing.isNotEmpty) setState(() => _pointerAt = at);
     final found = _tooFarToEdit
         ? null
         : pickAt(
@@ -470,7 +478,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   }
 
   /// Puts back the last change made.
+  ///
+  /// While a line is being drawn that is its last point: the line is not a
+  /// line yet, so there is nothing else it could mean.
   void _undo() {
+    if (_drawing.isNotEmpty) {
+      _removeLastPoint();
+      return;
+    }
     if (!_edits.undo()) return;
     _loader.editsChanged();
     _refreshPicked();
@@ -557,6 +572,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
 
   /// Adds a point to the line being drawn, or finishes it.
   void _extendLine(Offset at) {
+    _drawingFrom ??= _edits.length;
     final world = _camera.toWorld(at, _size);
     // Clicking the point the line has reached finishes it, which is how
     // every editor ends a line. The points of a line being drawn are new and
@@ -595,6 +611,23 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _loader.editsChanged();
   }
 
+  /// The line from the last point put down to the pointer, so that what the
+  /// next click would draw can be seen before it is drawn.
+  List<double> _ghost(Size size) {
+    final at = _pointerAt;
+    if (_drawing.isEmpty || at == null) return const [];
+    final node =
+        _edits.movedNode(_drawing.last) ?? _loader.store.nodes[_drawing.last];
+    if (node == null) return const [];
+    final world = _camera.toWorld(at, size);
+    return [
+      Mercator.x(node.longitude),
+      Mercator.y(node.latitude),
+      world.dx,
+      world.dy,
+    ];
+  }
+
   /// Whether a click landed on the node with [id].
   bool _isOn(int id, Offset at) {
     final node = _edits.movedNode(id) ?? _loader.store.nodes[id];
@@ -613,26 +646,54 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// same node again rather than another one in the same place.
   void _finishLine() {
     final closing = _tool == MapTool.addArea;
+    final from = _drawingFrom;
     if (_drawing.length > (closing ? 2 : 1)) {
       final way = _edits.createWay(
         nodeIds: [..._drawing, if (closing) _drawing.first],
       );
+      // Drawn a point at a time, but a line once it is finished, and a line
+      // is what should come back if it is undone.
+      if (from != null) _edits.combineSince(from);
       _selectOnly(way);
+    } else if (from != null) {
+      // Not enough of a line to keep, so its points go with it.
+      while (_edits.length > from) {
+        _edits.undo();
+      }
     }
     setState(() {
       _drawing.clear();
+      _drawingFrom = null;
       _tool = MapTool.browse;
     });
     _loader.editsChanged();
   }
 
-  /// Gives up on the line being drawn.
+  /// Gives up on the line being drawn, and on the points put down for it.
   void _abandonLine() {
     if (_drawing.isEmpty && _tool == MapTool.browse) return;
+    final from = _drawingFrom;
+    if (from != null) {
+      while (_edits.length > from) {
+        _edits.undo();
+      }
+    }
     setState(() {
       _drawing.clear();
+      _drawingFrom = null;
       _tool = MapTool.browse;
     });
+    _loader.editsChanged();
+  }
+
+  /// Takes back the last point put down for the line being drawn.
+  void _removeLastPoint() {
+    final id = _drawing.removeLast();
+    // Only if it was put down for this line. A point that was already on the
+    // map was joined to, not made, and stays where it is.
+    if (id < 0) _edits.undo();
+    if (_drawing.isEmpty) _drawingFrom = null;
+    setState(() {});
     _loader.editsChanged();
   }
 
@@ -821,7 +882,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                                   _loader.store,
                                   _edits,
                                   drawing: _drawing,
+                                  closing: _tool == MapTool.addArea,
                                 ),
+                                ghost: _ghost(size),
                                 selection: _selected.values.toList(),
                                 highlight: _hovered,
                                 onDrawn: (calls) => _drawCalls = calls,

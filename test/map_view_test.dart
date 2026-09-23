@@ -160,6 +160,14 @@ Future<void> _click(WidgetTester tester, Offset at) async {
   await tester.pump();
 }
 
+/// Undoes the last change.
+Future<void> _undo(WidgetTester tester) async {
+  await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+  await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+  await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+  await tester.pump();
+}
+
 /// Two clicks in the same place, quickly.
 Future<void> _doubleClick(WidgetTester tester, Offset at) async {
   await tester.tapAt(at);
@@ -954,6 +962,102 @@ void main() {
 
       final picked = _painterIn(tester).selection.single as PickedWay;
       expect(picked.way.isClosed, isTrue);
+    });
+
+    testWidgets('undoes a finished line as a line', (tester) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(400, 350));
+      await _click(tester, const Offset(500, 300));
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(_painterIn(tester).selection.single, isA<PickedWay>());
+
+      await _undo(tester);
+      // All of it, not its last point.
+      expect(_painterIn(tester).edited.ways, isEmpty);
+      expect(_painterIn(tester).edited.nodes, isEmpty);
+      expect(find.textContaining('change'), findsNothing);
+    });
+
+    testWidgets('undoes the last point while still drawing', (tester) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(400, 350));
+      await _click(tester, const Offset(500, 300));
+      expect(_painterIn(tester).edited.ways.single.points.length, 6);
+
+      await _undo(tester);
+      expect(_painterIn(tester).edited.ways.single.points.length, 4);
+
+      // And the line can go on from there.
+      await _click(tester, const Offset(600, 400));
+      expect(_painterIn(tester).edited.ways.single.points.length, 6);
+    });
+
+    testWidgets('leaves nothing behind when a line is given up on', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(400, 350));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(_painterIn(tester).edited.isEmpty, isTrue);
+      expect(find.textContaining('change'), findsNothing);
+    });
+
+    testWidgets('follows the pointer from the second point onwards', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+      await tester.pump();
+
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(const Offset(350, 320));
+      await tester.pump();
+      expect(_painterIn(tester).ghost, isEmpty, reason: 'nothing put down');
+
+      await _click(tester, const Offset(300, 300));
+      await mouse.moveTo(const Offset(420, 360));
+      await tester.pump();
+
+      final ghost = _painterIn(tester).ghost;
+      expect(ghost.length, 4);
+      final size = tester.getSize(find.byType(MapView));
+      final from = _painterIn(tester).camera.toScreen(ghost[0], ghost[1], size);
+      final to = _painterIn(tester).camera.toScreen(ghost[2], ghost[3], size);
+      expect((from - const Offset(300, 300)).distance, lessThan(1));
+      expect((to - const Offset(420, 360)).distance, lessThan(1));
+    });
+
+    testWidgets('stops following once the line is finished', (tester) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+      await tester.pump();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+
+      await _click(tester, const Offset(300, 300));
+      await mouse.moveTo(const Offset(420, 360));
+      await tester.pump();
+      expect(_painterIn(tester).ghost, isNotEmpty);
+
+      await _click(tester, const Offset(500, 300));
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(_painterIn(tester).ghost, isEmpty);
     });
   });
 }
