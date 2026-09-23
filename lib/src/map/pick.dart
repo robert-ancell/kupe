@@ -100,6 +100,7 @@ class PickedWay extends Picked {
 /// the moment it is moved. Anything holding onto something picked has to ask
 /// for it again as it changes, or it draws where the thing used to be.
 Picked? refreshed(Picked picked, MapStore store, OsmEdits edits) {
+  if (edits.isGone(picked.type, picked.id)) return null;
   switch (picked) {
     case PickedNode():
       final node = edits.movedNode(picked.id) ?? store.nodes[picked.id];
@@ -113,7 +114,7 @@ Picked? refreshed(Picked picked, MapStore store, OsmEdits edits) {
       final way = edits.changedWay(picked.id) ?? store.ways[picked.id];
       if (way == null) return null;
       final points = worldPointsOf(way, store, edits);
-      if (points == null) return null;
+      if (points == null || points.length < 4) return null;
       return PickedWay(way: way, points: points, width: picked.width);
   }
 }

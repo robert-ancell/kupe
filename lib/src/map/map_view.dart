@@ -541,6 +541,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     );
     if (made == null) return;
     _selectOnly(made);
+    setState(_refreshPicked);
     _loader.editsChanged();
   }
 
@@ -554,7 +555,12 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         from: waysUsingNode(picked.id, _loader.store, _edits),
       );
     }
-    setState(_selected.clear);
+    setState(() {
+      _selected.clear();
+      // What was pointed at may have just been taken off the map, or be a
+      // line that is a node shorter than it was.
+      _refreshPicked();
+    });
     _loader.editsChanged();
   }
 
@@ -905,7 +911,6 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                                   _loader.store,
                                   _edits,
                                   drawing: _drawing,
-                                  closing: _tool == MapTool.addArea,
                                 ),
                                 ghost: _ghost(size),
                                 ghostNode: _ghostNode(size),

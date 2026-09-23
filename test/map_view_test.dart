@@ -1171,5 +1171,83 @@ void main() {
       await tester.pump();
       expect(_painterIn(tester).ghostNode, isNull);
     });
+
+    testWidgets('leaves a shape open while it is being drawn', (tester) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(500, 300));
+      await _click(tester, const Offset(400, 500));
+
+      // Three points, drawn as three: the line back to the first is the one
+      // that would be drawn, and it is shown as such.
+      final drawn = _painterIn(tester).edited.ways.single;
+      expect(drawn.points.length, 6);
+      expect(drawn.way.isClosed, isFalse);
+    });
+
+    testWidgets('closes the shape once it is finished', (tester) async {
+      await openOver(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
+      await tester.pump();
+      await _click(tester, const Offset(300, 300));
+      await _click(tester, const Offset(500, 300));
+      await _click(tester, const Offset(400, 500));
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      final drawn = _painterIn(tester).edited.ways.single;
+      expect(drawn.way.isClosed, isTrue);
+      expect(drawn.points.length, 8, reason: 'back to where it started');
+    });
+
+    testWidgets('lets go of a node the moment it is deleted', (tester) async {
+      await openOver(tester);
+      await _doubleClick(tester, const Offset(560, 400));
+      final made = _painterIn(tester).selection.single;
+
+      // Point at it, so that it is both selected and highlighted.
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      final size = tester.getSize(find.byType(MapView));
+      final at = _painterIn(tester).camera
+          .toScreen((made as PickedNode).worldX, made.worldY, size);
+      await mouse.moveTo(at);
+      await tester.pump();
+      expect(_painterIn(tester).highlight, isNotNull);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+
+      // Without moving the pointer, the node that has gone is no longer
+      // what is pointed at. Whatever was under it may well be.
+      final now = _painterIn(tester).highlight;
+      expect(now is PickedNode && now.id == made.id, isFalse);
+      expect(_painterIn(tester).selection, isEmpty);
+    });
+
+    testWidgets('shortens the line it was pointing at', (tester) async {
+      await openOver(tester);
+      await _doubleClick(tester, const Offset(560, 400));
+      final made = _painterIn(tester).selection.single as PickedNode;
+
+      // Point at the line rather than the node, and take the node out.
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(const Offset(480, 400));
+      await tester.pump();
+      final before =
+          (_painterIn(tester).highlight as PickedWay?)?.points.length;
+      expect(before, isNotNull);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+
+      final after = (_painterIn(tester).highlight as PickedWay?)?.points.length;
+      expect(after, isNot(before), reason: 'node ${made.id} is out of it');
+    });
   });
 }
