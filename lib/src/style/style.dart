@@ -65,31 +65,40 @@ class StyleLayer {
 /// because every casing in the map is already down before any fill goes on.
 ///
 /// Line widths are metres of ground, so a carriageway can be compared against
-/// the imagery under it and against the buildings beside it. A casing is
-/// about a metre wider than the road it outlines.
+/// the imagery under it and against the buildings beside it.
+///
+/// They are drawn narrower than the thing itself. A road drawn its full width
+/// hides the road in the photograph under it, which is the one thing worth
+/// seeing while tracing; drawn down the middle of it, both are there at once.
+/// A casing is a metre wider than the line it outlines.
 const mapStyle = <StyleLayer>[
   StyleLayer(id: 'earth', kind: LayerKind.fill, colour: 0xfff2efe9),
   StyleLayer(id: 'green', kind: LayerKind.fill, colour: 0xffc8e6a0),
   StyleLayer(id: 'sand', kind: LayerKind.fill, colour: 0xfff0e5c8),
   StyleLayer(id: 'water', kind: LayerKind.fill, colour: 0xffa5c9e8),
   StyleLayer(id: 'building', kind: LayerKind.fill, colour: 0xffd6cec4),
-  StyleLayer(id: 'stream', kind: LayerKind.line, colour: 0xffa5c9e8, width: 3),
-  StyleLayer(id: 'path', kind: LayerKind.line, colour: 0xffb08050, width: 1.5),
-  StyleLayer(id: 'rail', kind: LayerKind.line, colour: 0xff9a9a9a, width: 3),
+  StyleLayer(
+    id: 'stream',
+    kind: LayerKind.line,
+    colour: 0xffa5c9e8,
+    width: 1.5,
+  ),
+  StyleLayer(id: 'path', kind: LayerKind.line, colour: 0xffb08050, width: 0.8),
+  StyleLayer(id: 'rail', kind: LayerKind.line, colour: 0xff9a9a9a, width: 1.5),
   StyleLayer(
     id: 'minor-casing',
     kind: LayerKind.line,
     colour: 0xffcfcabb,
-    width: 7,
+    width: 3.6,
   ),
   StyleLayer(
     id: 'major-casing',
     kind: LayerKind.line,
     colour: 0xffc0a878,
-    width: 12,
+    width: 6,
   ),
-  StyleLayer(id: 'minor', kind: LayerKind.line, colour: 0xffffffff, width: 5.5),
-  StyleLayer(id: 'major', kind: LayerKind.line, colour: 0xfff8d98a, width: 10),
+  StyleLayer(id: 'minor', kind: LayerKind.line, colour: 0xffffffff, width: 2.6),
+  StyleLayer(id: 'major', kind: LayerKind.line, colour: 0xfff8d98a, width: 5),
 ];
 
 /// The index of the layer with the given id.
