@@ -14,9 +14,11 @@ const _size = Size(400, 400);
 Camera _at(double latitude, double longitude) =>
     Camera.at(latitude: latitude, longitude: longitude, zoom: 17);
 
+/// Lets everything queued run, including work that takes real time, which
+/// takes longer again when the whole suite is running at once.
 Future<void> _drain() async {
   for (var i = 0; i < 80; i++) {
-    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(const Duration(milliseconds: 1));
   }
 }
 

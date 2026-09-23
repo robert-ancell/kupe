@@ -13,9 +13,12 @@ const _size = Size(400, 400);
 Camera _at(double zoom) =>
     Camera.at(latitude: -36.85, longitude: 174.76, zoom: zoom);
 
+/// Lets everything queued run, including work that takes real time such as
+/// reading files, which takes longer again when the whole suite is running
+/// at once. Turning microtasks over alone is not enough.
 Future<void> _drain() async {
   for (var i = 0; i < 60; i++) {
-    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(const Duration(milliseconds: 1));
   }
 }
 

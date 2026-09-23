@@ -70,10 +70,12 @@ MapLoader _loaderOn(_Api server, {OsmTileCache? cache}) => MapLoader(
 Camera _at(double zoom) =>
     Camera.at(latitude: -36.85, longitude: 174.76, zoom: zoom);
 
-/// Lets every queued request run to completion.
+/// Lets every queued request run to completion, including work that takes
+/// real time such as reading files, which takes longer again when the whole
+/// suite is running at once.
 Future<void> _drain() async {
-  for (var i = 0; i < 50; i++) {
-    await Future<void>.delayed(Duration.zero);
+  for (var i = 0; i < 60; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 1));
   }
 }
 
