@@ -66,16 +66,7 @@ EditedGeometry editedGeometry(
     final layers = wayLayersFor(way);
     final points = _pointsOf(way.nodeIds, store, edits);
     if (points.length < 4) continue;
-    ways.add(
-      EditedWay(
-        way: way,
-        points: points,
-        // A way with nothing said about it yet, which is what a line being
-        // drawn is, is still drawn: otherwise there is nothing to see while
-        // it is being drawn.
-        layers: layers.isEmpty ? [layerIndex('minor')] : layers,
-      ),
-    );
+    ways.add(EditedWay(way: way, points: points, layers: layers));
   }
 
   // The line being drawn, which is not a way yet. Left open however it will

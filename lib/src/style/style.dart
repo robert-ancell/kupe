@@ -77,6 +77,18 @@ const mapStyle = <StyleLayer>[
   StyleLayer(id: 'sand', kind: LayerKind.fill, colour: 0xfff0e5c8),
   StyleLayer(id: 'water', kind: LayerKind.fill, colour: 0xffa5c9e8),
   StyleLayer(id: 'building', kind: LayerKind.fill, colour: 0xffd6cec4),
+  // Every way the style has nothing more particular to say about: power
+  // lines, fences, the untagged members of a multipolygon, a landuse with no
+  // colour of its own. Everything on the map is drawn, because everything on
+  // it can be edited. Under the edges of the filled shapes, so the ways a
+  // multipolygon is made of do not draw over its own edge.
+  StyleLayer(
+    id: 'other',
+    kind: LayerKind.line,
+    colour: 0xffbcbcbc,
+    width: 1,
+    join: LineJoin.round,
+  ),
   // The edges of the filled shapes, after the last of the fills so that one
   // shape's fill never covers its neighbour's edge. Over imagery a fill is
   // let through almost to nothing, and the edge is what says the shape is
@@ -161,16 +173,22 @@ final _areaEdges = <int, int>{
         layerIndex(layer.id): layerIndex('${layer.id}-edge'),
 };
 
-/// Every layer [way] is drawn in, in style order: a line's casing and
-/// fill, or an area's fill and the edge around it.
+/// Every layer [way] is drawn in, in style order: an area's fill and the
+/// edge around it, a line's casing and fill, or failing both the plain line
+/// every other way is drawn with. Never nothing.
 ///
-/// For drawing and picking a single way the way the tiles draw it, so that
-/// one being edited looks the same as it did before it was touched and can
-/// be taken hold of by the same part of it.
+/// The one answer for the tiles, for a way being edited and for picking, so
+/// that a way looks the same before and while it is changed and can be
+/// taken hold of by what is drawn of it.
 List<int> wayLayersFor(OsmWay way) {
-  if (!way.isClosed || !enclosesArea(way.tags)) return lineLayersFor(way.tags);
-  final fills = fillLayersFor(way.tags);
-  return [...fills, for (final fill in fills) ?areaEdgeLayer(fill)]..sort();
+  final fills = way.isClosed && enclosesArea(way.tags)
+      ? fillLayersFor(way.tags)
+      : const <int>[];
+  if (fills.isNotEmpty) {
+    return [...fills, for (final fill in fills) ?areaEdgeLayer(fill)]..sort();
+  }
+  final lines = lineLayersFor(way.tags);
+  return lines.isEmpty ? [layerIndex('other')] : lines;
 }
 
 /// The index of the layer with the given id.

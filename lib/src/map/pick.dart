@@ -134,6 +134,12 @@ bool isNodePinned(OsmWay way, int index, int Function(int nodeId) waysThrough) {
   return index == 0 || index == way.nodeIds.length - 1;
 }
 
+/// Whether a node is marked in its own right, whatever ways it is in: when
+/// it says something itself — a pylon, a crossing, a shop — or when it is in
+/// no way at all, and would otherwise not be on the map.
+bool isNodeMarked(OsmNode node, int Function(int nodeId) waysThrough) =>
+    node.tags.isNotEmpty || waysThrough(node.id) == 0;
+
 /// Whether a node of a way can be taken hold of.
 ///
 /// Where it is pinned, by [isNodePinned], and anywhere along a way that is
@@ -263,6 +269,16 @@ PickedNode? nodeAt(
     }
   }
 
+  // Nodes marked in their own right, by [isNodeMarked], wherever they are.
+  for (final tile in _tilesAround(world, reach, zoom)) {
+    for (final element in store.drawnIn(tile)) {
+      if (element is! OsmNode) continue;
+      if (edits?.isGone(OsmElementType.node, element.id) ?? false) continue;
+      final node = edits?.movedNode(element.id) ?? element;
+      if (isNodeMarked(node, through)) consider(node);
+    }
+  }
+
   // A node just put down belongs to no way at all, and is always there to be
   // taken hold of.
   for (final node in edits?.movedNodes.values ?? const <OsmNode>[]) {
@@ -301,10 +317,6 @@ PickedWay? wayAt(
       for (final layer in wayLayersFor(way))
         if (mapStyle[layer].kind == LayerKind.line) layer,
     ];
-    // A way the style says nothing about is not on the map to be taken hold
-    // of, unless it has just been drawn and has not been said anything about
-    // yet.
-    if (layers.isEmpty && (edits?.changedWay(way.id) == null)) continue;
 
     final points = worldPointsOf(way, store, edits);
     if (points == null || points.length < 4) continue;

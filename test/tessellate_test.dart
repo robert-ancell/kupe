@@ -134,8 +134,51 @@ void main() {
     expect(maxX, closeTo(end, 1e-3));
   });
 
-  test('leaves an untagged way undrawn', () {
-    expect(_build(_way(const {})).tiles, isEmpty);
+  group('draws everything', () {
+    /// The layers the one way in [report] was drawn in.
+    List<int> layersOf(TessellationReport report) => [
+      for (final tile in report.tiles.values) ...[
+        for (final mesh in tile.fills) mesh.layer,
+        for (final mesh in tile.lines) mesh.layer,
+      ],
+    ];
+
+    test('draws an untagged way', () {
+      // The members of a multipolygon are untagged, and are where its shape
+      // is edited.
+      expect(layersOf(_build(_way(const {}))), [layerIndex('other')]);
+    });
+
+    test('draws a way the style has nothing particular to say about', () {
+      expect(layersOf(_build(_way(const {'power': 'line'}))), [
+        layerIndex('other'),
+      ]);
+      expect(layersOf(_build(_way(const {'barrier': 'fence'}))), [
+        layerIndex('other'),
+      ]);
+    });
+
+    test('draws the edge of an area with no colour of its own', () {
+      final nodes = {
+        1: const OsmNode(id: 1, latitude: -36.85, longitude: 174.7600),
+        2: const OsmNode(id: 2, latitude: -36.85, longitude: 174.7602),
+        3: const OsmNode(id: 3, latitude: -36.8502, longitude: 174.7602),
+      };
+      const way = OsmWay(
+        id: 10,
+        nodeIds: [1, 2, 3, 1],
+        tags: {'landuse': 'residential'},
+      );
+      final report = _build(
+        OsmSubset(
+          matches: const [way],
+          nodes: nodes,
+          ways: const {10: way},
+          relations: const {},
+        ),
+      );
+      expect(layersOf(report), [layerIndex('other')]);
+    });
   });
 
   test('puts a closed building in a fill layer and not a line one', () {
@@ -259,6 +302,58 @@ void main() {
       );
       // The junction, and the far end of the road joining.
       expect(marksIn(_build(joined)), 2);
+    });
+
+    group('a node in its own right', () {
+      /// A power line of three nodes, the middle one a pylon, and a shop off
+      /// on its own.
+      OsmSubset powerLine() {
+        final nodes = {
+          1: const OsmNode(id: 1, latitude: _latitude, longitude: 174.7600),
+          2: const OsmNode(
+            id: 2,
+            latitude: _latitude,
+            longitude: 174.7602,
+            tags: {'power': 'tower'},
+          ),
+          3: const OsmNode(id: 3, latitude: _latitude, longitude: 174.7604),
+          4: const OsmNode(
+            id: 4,
+            latitude: _latitude - 0.0003,
+            longitude: 174.7602,
+            tags: {'shop': 'bakery'},
+          ),
+        };
+        const line = OsmWay(
+          id: 10,
+          nodeIds: [1, 2, 3],
+          tags: {'power': 'line'},
+        );
+        return OsmSubset(
+          matches: [line, ...nodes.values],
+          nodes: nodes,
+          ways: const {10: line},
+          relations: const {},
+        );
+      }
+
+      test('is marked when it says something itself', () {
+        // Both ends of the line, the pylon along it, and the shop.
+        expect(marksIn(_build(powerLine())), 4);
+      });
+
+      test('is marked when it is in no way at all', () {
+        const node = OsmNode(id: 1, latitude: _latitude, longitude: 174.76);
+        final report = _build(
+          const OsmSubset(
+            matches: [node],
+            nodes: {1: node},
+            ways: {},
+            relations: {},
+          ),
+        );
+        expect(marksIn(report), 1);
+      });
     });
 
     test('marks nothing on a filled shape', () {

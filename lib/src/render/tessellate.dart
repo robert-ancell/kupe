@@ -84,10 +84,6 @@ TessellationReport tessellate(
   var incomplete = 0;
 
   for (final element in data.matches) {
-    if (element.tags.isEmpty) {
-      skipped += 1;
-      continue;
-    }
     // Anything that has been changed is drawn from what it is now, a frame
     // at a time, so it is left out of what is built once and kept.
     if (skip != null && skip(element)) {
@@ -98,7 +94,7 @@ TessellationReport tessellate(
     final built = switch (element) {
       OsmWay() => _way(element, data, builders, zoom, into, through),
       OsmRelation() => _relation(element, data, builders, zoom, into),
-      _ => _Outcome.skipped,
+      OsmNode() => _node(element, builders, zoom, into, through),
     };
     switch (built) {
       case _Outcome.drawn:
@@ -130,17 +126,21 @@ _Outcome _way(
   OsmTile? into,
   int Function(int nodeId) waysThrough,
 ) {
-  final asArea = way.isClosed && enclosesArea(way.tags);
-  final layers = asArea ? fillLayersFor(way.tags) : lineLayersFor(way.tags);
-  if (layers.isEmpty) return _Outcome.skipped;
+  // Every way is drawn, tagged or not, known to the style or not: whatever
+  // is on the map can be edited, so whatever is on the map is shown.
+  final layers = wayLayersFor(way);
+  final fills = [
+    for (final layer in layers)
+      if (mapStyle[layer].kind == LayerKind.fill) layer,
+  ];
 
   final nodes = data.nodesOf(way);
   if (nodes == null) return _Outcome.incomplete;
 
-  if (asArea) {
+  if (fills.isNotEmpty) {
     final area = data.areaOf(way);
     if (area == null) return _Outcome.incomplete;
-    return _fill(area, layers, builders, zoom, into);
+    return _fill(area, fills, builders, zoom, into);
   }
 
   final tile = into ?? _tileOf(nodes.first, zoom);
@@ -155,6 +155,26 @@ _Outcome _way(
     if (!isNodePinned(way, i, waysThrough)) continue;
     builder.point(way.nodeIds[i], points[i * 2], points[i * 2 + 1]);
   }
+  return _Outcome.drawn;
+}
+
+/// Marks a node that is marked in its own right, by [isNodeMarked]: one
+/// that is tagged, or one that is in no way at all.
+///
+/// The rest are marked, or not, by the ways they are in.
+_Outcome _node(
+  OsmNode node,
+  Map<OsmTile, _TileBuilder> builders,
+  int zoom,
+  OsmTile? into,
+  int Function(int nodeId) waysThrough,
+) {
+  if (!isNodeMarked(node, waysThrough)) return _Outcome.skipped;
+  final tile = into ?? _tileOf(node, zoom);
+  final at = _project([node], tile);
+  builders
+      .putIfAbsent(tile, () => _TileBuilder(tile))
+      .point(node.id, at[0], at[1]);
   return _Outcome.drawn;
 }
 

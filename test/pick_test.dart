@@ -62,9 +62,66 @@ void main() {
     expect(_pick(end + const Offset(20, 0), store), isNull);
   });
 
-  test('picks nothing for a way the style does not draw', () {
-    final store = _storeWith(const {'note': 'nothing to draw'});
-    expect(_pick(_middle, store), isNull);
+  test('picks a way the style has nothing particular to say about', () {
+    // Drawn, so there to be taken hold of.
+    expect(_pick(_middle, _storeWith(const {'power': 'line'})), isNotNull);
+    expect(_pick(_middle, _storeWith(const {})), isNotNull);
+  });
+
+  group('a node in its own right', () {
+    MapStore holding(OsmNode node) =>
+        MapStore()..add(OsmTile.at(16, _latitude, _longitude), [node]);
+
+    test('is taken when it is in no way at all', () {
+      const node = OsmNode(id: 7, latitude: _latitude, longitude: _longitude);
+      final picked = pickAt(_middle, _camera, _size, holding(node));
+      expect(picked, isA<PickedNode>());
+      expect(picked!.id, 7);
+    });
+
+    test('is taken along the middle of a line when it is tagged', () {
+      // A pylon half way along a power line, which is not selected. The
+      // same line with an untagged node there gives up the line instead.
+      MapStore line({required Map<String, String> middle}) {
+        final nodes = [
+          const OsmNode(
+            id: 10,
+            latitude: _latitude,
+            longitude: _longitude - 0.002,
+          ),
+          OsmNode(
+            id: 7,
+            latitude: _latitude,
+            longitude: _longitude,
+            tags: middle,
+          ),
+          const OsmNode(
+            id: 11,
+            latitude: _latitude,
+            longitude: _longitude + 0.002,
+          ),
+        ];
+        const way = OsmWay(
+          id: 12,
+          nodeIds: [10, 7, 11],
+          tags: {'power': 'line'},
+        );
+        return MapStore()
+          ..add(OsmTile.at(16, _latitude, _longitude), [...nodes, way]);
+      }
+
+      final tagged = pickAt(
+        _middle,
+        _camera,
+        _size,
+        line(middle: const {'power': 'tower'}),
+      );
+      expect(tagged, isA<PickedNode>());
+      expect(tagged!.id, 7);
+
+      final untagged = pickAt(_middle, _camera, _size, line(middle: const {}));
+      expect(untagged, isA<PickedWay>());
+    });
   });
 
   group('a building', () {
