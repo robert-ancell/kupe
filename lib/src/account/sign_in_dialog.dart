@@ -38,20 +38,11 @@ class SignInDialog extends StatefulWidget {
 
 class _SignInDialogState extends State<SignInDialog> {
   late final Account _account = widget.account;
-  late final _clientId = TextEditingController(
-    text: widget.account.clientId ?? '',
-  );
   bool _busy = false;
 
   /// What went wrong, where it went wrong. It belongs in front of the
   /// button that caused it rather than behind a window that has closed.
   String? _said;
-
-  @override
-  void dispose() {
-    _clientId.dispose();
-    super.dispose();
-  }
 
   Future<void> _signIn() async {
     setState(() {
@@ -59,8 +50,8 @@ class _SignInDialogState extends State<SignInDialog> {
       _said = null;
     });
     try {
-      final asking = _account.copyWith(clientId: _clientId.text.trim());
-      final signedIn = await (widget.signIn?.call(asking) ?? asking.signIn());
+      final signedIn =
+          await (widget.signIn?.call(_account) ?? _account.signIn());
       if (!mounted) return;
       Navigator.pop(context, signedIn);
     } on Exception catch (e) {
@@ -98,9 +89,6 @@ class _SignInDialogState extends State<SignInDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // A build with an application of its own never has to ask for one; a
-    // fork has nothing else to go on.
-    final needsClientId = kupeClientId.isEmpty;
     return AlertDialog(
       title: const Text('OpenStreetMap account'),
       // Scrolled, because what this has to say varies: a refusal from
@@ -114,28 +102,6 @@ class _SignInDialogState extends State<SignInDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(_explanation),
-              if (needsClientId) ...[
-                const SizedBox(height: 16),
-                const Text(
-                  'This build has no OpenStreetMap application registered to '
-                  'sign in as. Register one at '
-                  'openstreetmap.org/oauth2/applications with the permissions '
-                  '"Modify the map" and "Read user preferences", a redirect '
-                  'URI of http://127.0.0.1:$kupeRedirectPort/ and no client '
-                  'secret, then put its client ID here.',
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const Key('client-id'),
-                  controller: _clientId,
-                  enabled: !_busy,
-                  decoration: const InputDecoration(
-                    labelText: 'Client ID',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              ],
               if (_said case final said?)
                 Padding(
                   padding: const EdgeInsets.only(top: 16),

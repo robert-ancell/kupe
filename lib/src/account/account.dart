@@ -12,9 +12,9 @@ import 'package:osm/osm.dart';
 /// nothing, which is why iD ships its own in the page source. See the notes
 /// in osm.dart's `auth.dart` for what it is and is not.
 ///
-/// Empty means no application has been registered for this build — a fork,
-/// or a checkout somebody is running themselves — and the editor asks for
-/// one rather than pretending to be somebody else's.
+/// A fork signing in as itself rather than as Kupe registers its own and
+/// changes this, which also means changing [kupeRedirectPort] to whatever
+/// that registration was given.
 const kupeClientId = 'ZGVvl3NuHXWJaWDNro-48My6lkMAWQw9g6oX4oH5Y7c';
 
 /// The port OpenStreetMap sends the browser back to.
@@ -30,10 +30,6 @@ const kupeGenerator = 'Kupe';
 /// The account the editor holds a token for, and the application it got it
 /// as.
 class Account {
-  /// A client ID put in by hand, for a build with none of its own. Null on
-  /// an ordinary install, where [kupeClientId] is the one used.
-  final String? clientId;
-
   /// The bearer token, or null while nobody is signed in.
   final String? token;
 
@@ -51,7 +47,7 @@ class Account {
   final Set<String> scopes;
 
   /// Creates an account.
-  const Account({this.clientId, this.token, this.user, this.scopes = const {}});
+  const Account({this.token, this.user, this.scopes = const {}});
 
   /// Whether there is a token at all.
   bool get isSignedIn => token != null;
@@ -62,26 +58,13 @@ class Account {
   /// Kupe asked to be allowed to upload.
   bool get canUpload => isSignedIn && scopes.contains(osmWriteApiScope);
 
-  /// The application to sign in as: one put in by hand if there is one, and
-  /// the editor's own otherwise.
-  ///
-  /// Null only where there is neither, which is the one case the editor has
-  /// to ask about.
-  String? get signInAs {
-    final own = clientId?.trim();
-    if (own != null && own.isNotEmpty) return own;
-    return kupeClientId.isEmpty ? null : kupeClientId;
-  }
-
   /// The same account with parts of it replaced, or with the token dropped.
   Account copyWith({
-    String? clientId,
     String? token,
     String? user,
     Set<String>? scopes,
     bool signedOut = false,
   }) => Account(
-    clientId: clientId ?? this.clientId,
     token: signedOut ? null : token ?? this.token,
     user: signedOut ? null : user ?? this.user,
     scopes: signedOut ? const {} : scopes ?? this.scopes,
@@ -89,7 +72,6 @@ class Account {
 
   /// The account as it is written down.
   Map<String, dynamic> toJson() => {
-    if (clientId != null) 'clientId': clientId,
     if (token != null) 'token': token,
     if (user != null) 'user': user,
     if (scopes.isNotEmpty) 'scopes': scopes.toList()..sort(),
@@ -102,7 +84,6 @@ class Account {
         json[key] is String ? json[key] as String : null;
     final scopes = json['scopes'];
     return Account(
-      clientId: string('clientId'),
       token: string('token'),
       user: string('user'),
       scopes: {
@@ -145,15 +126,8 @@ class Account {
     Future<OsmToken> Function(OsmSignIn)? through,
     Future<String> Function(String token)? whoAmI,
   }) async {
-    final clientId = signInAs;
-    if (clientId == null) {
-      throw const OsmSignInException(
-        'This build of Kupe has no OpenStreetMap application registered to '
-        'sign in as. Register one and put its client ID in here.',
-      );
-    }
     final signIn = OsmSignIn(
-      clientId: clientId,
+      clientId: kupeClientId,
       redirectPort: kupeRedirectPort,
     );
     final token = await (through?.call(signIn) ?? signIn.tokenFromBrowser());

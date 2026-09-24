@@ -77,10 +77,6 @@ void main() {
       expect(out.scopes, isEmpty);
       expect(out.canUpload, isFalse);
     });
-
-    test('prefers a client ID put in by hand', () {
-      expect(const Account(clientId: 'mine').signInAs, 'mine');
-    });
   });
 
   group('signing in', () {
