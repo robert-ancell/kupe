@@ -1436,6 +1436,136 @@ void main() {
     });
   });
 
+  group('doing things to what is selected', () {
+    /// The short road, from the one box it runs through the middle of.
+    ///
+    /// Every box across its latitude answers with a copy of it otherwise,
+    /// each with ids of its own, which leaves two roads in one place: one
+    /// deleted leaves the other there to be found.
+    Future<Uint8List?> oneRoad(
+      Uri uri, {
+      Future<void>? abandon,
+      void Function(Uint8List body)? onLate,
+    }) async {
+      final [west, _, east, _] = uri.queryParameters['bbox']!
+          .split(',')
+          .map(double.parse)
+          .toList();
+      if (174.76 < west || 174.76 >= east) {
+        return Uint8List.fromList(utf8.encode('<osm version="0.6"/>'));
+      }
+      return _shortRoad(uri);
+    }
+
+    Future<void> openOver(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: oneRoad),
+              initialCamera: Camera.at(
+                latitude: _roadLatitude,
+                longitude: 174.76,
+                zoom: 18,
+              ),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+    }
+
+    /// Along the road, away from its nodes, and one of its ends.
+    const road = Offset(450, 400);
+    const end = Offset(407, 400);
+
+    Future<void> rightClick(WidgetTester tester, Offset at) async {
+      await tester.tapAt(
+        at,
+        buttons: kSecondaryMouseButton,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    OsmWay selectedWay(WidgetTester tester) =>
+        (_painterIn(tester).selection.single as PickedWay).way;
+
+    testWidgets('offers what can be done to what is right clicked', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await rightClick(tester, road);
+      // Selected first, so that what is offered is for it.
+      expect(_painterIn(tester).selection.single, isA<PickedWay>());
+      expect(find.text('Reverse'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
+      // Nothing that does not apply to a line.
+      expect(find.text('Extract'), findsNothing);
+      expect(find.text('Continue'), findsNothing);
+    });
+
+    testWidgets('does what is chosen from the menu', (tester) async {
+      await openOver(tester);
+      await rightClick(tester, road);
+      final deleted = selectedWay(tester).id;
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(_painterIn(tester).selection, isEmpty);
+      // Nothing left there to point at, and nothing that was it.
+      await _click(tester, road);
+      expect(
+        _painterIn(tester).selection.map((picked) => picked.id),
+        isNot(contains(deleted)),
+      );
+    });
+
+    testWidgets('offers nothing, and lets go, for nothing right clicked', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await _click(tester, road);
+      await rightClick(tester, const Offset(500, 700));
+      expect(_painterIn(tester).selection, isEmpty);
+      expect(find.text('Delete'), findsNothing);
+    });
+
+    testWidgets('does it by its key as well', (tester) async {
+      await openOver(tester);
+      await _click(tester, road);
+      final before = selectedWay(tester).nodeIds;
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.pump();
+      expect(selectedWay(tester).nodeIds, before.reversed.toList());
+    });
+
+    testWidgets('carries a line on from its end, as one change', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await _click(tester, end);
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.pump();
+      await _click(tester, const Offset(330, 400));
+      await _click(tester, const Offset(300, 460));
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      final line = selectedWay(tester);
+      expect(line.id, isPositive, reason: 'the same line, not a new one');
+      expect(line.nodeIds, hasLength(5));
+      // Added at the end it was carried on from, which is its start.
+      expect(line.nodeIds.take(2).every((id) => id < 0), isTrue);
+
+      await _undo(tester);
+      await _click(tester, road);
+      expect(selectedWay(tester).nodeIds, hasLength(3));
+    });
+  });
+
   group('where it is', () {
     /// A road, and a kind of road only one country has.
     final presets = OsmPresets.parse(

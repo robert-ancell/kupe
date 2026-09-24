@@ -17,6 +17,11 @@ class MapStore {
   final _nodeWays = <int, List<int>>{};
   final _nodeUses = <int, int>{};
 
+  /// The relations listing each element, worked out when first asked for and
+  /// thrown away whenever a relation comes or goes. Relations are few, and
+  /// asked about only when something is being done to what they list.
+  Map<(OsmElementType, int), List<int>>? _listedBy;
+
   /// Every node held, by id.
   Map<int, OsmNode> get nodes => _nodes;
 
@@ -48,6 +53,7 @@ class MapStore {
           _keep(_ways, element.id, element);
         case OsmRelation():
           _keep(_relations, element.id, element);
+          _listedBy = null;
       }
     }
 
@@ -71,6 +77,23 @@ class MapStore {
   ///
   /// What has to be drawn again when that node moves.
   List<int> waysUsing(int id) => _nodeWays[id] ?? const [];
+
+  /// The ids of the relations held that list the element of [type] with
+  /// [id].
+  List<int> relationsListing(OsmElementType type, int id) =>
+      (_listedBy ??= _indexMembers())[(type, id)] ?? const [];
+
+  Map<(OsmElementType, int), List<int>> _indexMembers() {
+    final index = <(OsmElementType, int), List<int>>{};
+    for (final relation in _relations.values) {
+      for (final member in relation.members) {
+        final ids = index[(member.type, member.ref)] ??= [];
+        // Once, however many times the relation lists it.
+        if (ids.isEmpty || ids.last != relation.id) ids.add(relation.id);
+      }
+    }
+    return index;
+  }
 
   /// How many of the ways held run through the node with [id].
   ///
@@ -122,6 +145,7 @@ class MapStore {
           _ways.remove(key.$2);
         case OsmElementType.relation:
           _relations.remove(key.$2);
+          _listedBy = null;
       }
     }
   }

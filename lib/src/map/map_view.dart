@@ -14,12 +14,13 @@ import '../account/upload_dialog.dart';
 import '../data/map_loader.dart';
 import '../edit/edited_geometry.dart';
 import '../edit/insert.dart';
-import '../edit/ways.dart';
+import '../edit/view.dart';
 import '../imagery/imagery_layer.dart';
 import '../render/map_painter.dart';
 import '../render/node_sprite.dart';
 import 'camera.dart';
 import 'frame_stats.dart';
+import 'operations.dart';
 import 'pick.dart';
 import 'tag_editor.dart';
 
@@ -213,6 +214,10 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// How many changes had been made when the line being drawn was started,
   /// so that all of it can be gathered into one when it is finished.
   int? _drawingFrom;
+
+  /// The line being carried on, if the line being drawn is the rest of one,
+  /// and whether it is being carried on from its start rather than its end.
+  (int, bool)? _continuing;
 
   /// Where the pointer is, for the line to follow while it is being drawn.
   Offset? _pointerAt;
@@ -622,27 +627,214 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     if (mounted) setState(() {});
   }
 
-  /// The shape [element] takes, as far as what it can be is concerned.
-  ///
-  /// A node is a vertex when it is in a way, drawn since or read, and a point
-  /// when it stands alone. A way is an area when it is closed and its tags
-  /// say so, by the same rule the presets are chosen by, and a line
-  /// otherwise.
+  /// The map as it now stands, for anything done to it to work from.
+  StoreEditView get _view =>
+      StoreEditView(_loader.store, _edits, presets: widget.presets?.value);
+
+  /// The shape [element] takes; see [StoreEditView.geometryOf].
   OsmGeometry _geometryOf(OsmElement element, OsmPresets presets) =>
+      _view.geometryOf(element);
+
+  /// What is selected, as it now stands.
+  List<OsmElement> get _selectedElements => [
+    for (final picked in _selected.values) picked.element,
+  ];
+
+  /// Whether too little of what is selected is on screen to be sure of
+  /// what is being done to it.
+  bool get _selectionTooLarge {
+    var left = double.infinity, top = double.infinity;
+    var right = double.negativeInfinity, bottom = double.negativeInfinity;
+    void cover(OsmNode? node) {
+      if (node == null) return;
+      final x = Mercator.x(node.longitude), y = Mercator.y(node.latitude);
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+
+    final view = _view;
+    for (final element in _selectedElements) {
       switch (element) {
-        OsmNode() =>
-          waysUsingNode(element.id, _loader.store, _edits).isEmpty
-              ? OsmGeometry.point
-              : OsmGeometry.vertex,
-        OsmWay() =>
-          element.isClosed && presets.isArea(element.tags)
-              ? OsmGeometry.area
-              : OsmGeometry.line,
-        OsmRelation() =>
-          element.tags['type'] == 'multipolygon'
-              ? OsmGeometry.area
-              : OsmGeometry.relation,
-      };
+        case OsmNode():
+          cover(view.node(element.id));
+        case OsmWay():
+          for (final id in element.nodeIds) {
+            cover(view.node(id));
+          }
+        case OsmRelation():
+          break;
+      }
+    }
+    if (left > right) return false;
+    return isTooLarge(
+      Rect.fromLTRB(left, top, right, bottom),
+      _camera.worldBounds(_size),
+    );
+  }
+
+  /// What can be done to what is selected, as iD offers it.
+  List<OfferedOperation> _offered() {
+    final selected = _selectedElements;
+    if (selected.isEmpty) return const [];
+    return offeredOperations(
+      _view,
+      selected,
+      presets: widget.presets?.value,
+      here: _regionsOf(selected.first),
+      tooLarge: _selectionTooLarge,
+    );
+  }
+
+  /// Does [kind] to what is selected, or says why it cannot be done.
+  ///
+  /// By its key as well as from the menu, and by its key the reason it
+  /// cannot be done is all there is to show, so it is said along the bottom
+  /// of the map, as iD flashes it.
+  void _perform(OperationKind kind) {
+    if (_tooFarToEdit || _tool != MapTool.browse) return;
+    final offer = _offered().where((o) => o.kind == kind).firstOrNull;
+    if (offer == null) return;
+    if (offer.disabled case final why?) {
+      setState(() => _notice = why);
+      return;
+    }
+    final view = _view;
+    final selected = _selectedElements;
+    switch (kind) {
+      case OperationKind.continueLine:
+        final line = osmContinuable(view, selected)!.single;
+        final vertex = selected.whereType<OsmNode>().single;
+        _startContinuing(line, vertex);
+        return;
+      case OperationKind.extract:
+        final points = OsmExtract(
+          view,
+          selected,
+          presets: widget.presets?.value,
+          here: _regionsOf(selected.first),
+        ).apply();
+        _loader.editsChanged();
+        setState(() {
+          _selected.clear();
+          for (final point in points) {
+            _selected[(OsmElementType.node, point.id)] = PickedNode(
+              node: point,
+              worldX: Mercator.x(point.longitude),
+              worldY: Mercator.y(point.latitude),
+            );
+          }
+          _refreshPicked();
+        });
+      case OperationKind.reverse:
+        OsmReverse(view, selected).apply();
+        _loader.editsChanged();
+        setState(_refreshPicked);
+      case OperationKind.delete:
+        OsmDelete(view, selected).apply();
+        _loader.editsChanged();
+        setState(() {
+          _selected.clear();
+          // What was pointed at may have just been taken off the map, or be
+          // a line that is a node shorter than it was.
+          _refreshPicked();
+        });
+    }
+  }
+
+  /// Opens the menu of what can be done, at [at] on the map and [global] on
+  /// the screen.
+  ///
+  /// Whatever is under the pointer is selected first unless it already is,
+  /// so that what the menu offers is for what was pointed at. Pointing at
+  /// nothing lets go of the selection, and there is nothing to offer.
+  Future<void> _openMenu(Offset at, Offset global) async {
+    if (_tooFarToEdit || _tool != MapTool.browse) return;
+    final picked = pickAt(
+      at,
+      _camera,
+      _size,
+      _loader.store,
+      selectedWays: _selectedWays,
+      edits: _edits,
+      zoom: loadZoom,
+    );
+    setState(() {
+      if (picked == null) {
+        _selected.clear();
+      } else if (!_selected.containsKey((picked.type, picked.id))) {
+        _selected
+          ..clear()
+          ..[(picked.type, picked.id)] = picked;
+      }
+    });
+    final offered = _offered();
+    if (offered.isEmpty) return;
+
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final chosen = await showMenu<OperationKind>(
+      context: context,
+      position: RelativeRect.fromRect(
+        global & Size.zero,
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        for (final offer in offered)
+          PopupMenuItem(
+            key: Key('operation-${offer.kind.name}'),
+            value: offer.kind,
+            enabled: offer.enabled,
+            height: 36,
+            child: Tooltip(
+              message: offer.disabled ?? offer.description,
+              waitDuration: const Duration(milliseconds: 400),
+              child: Row(
+                children: [
+                  Icon(offer.icon, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(offer.title)),
+                  const SizedBox(width: 16),
+                  Text(
+                    offer.key,
+                    style: TextStyle(
+                      color: Theme.of(context).hintColor,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+    if (chosen != null && mounted) _perform(chosen);
+  }
+
+  /// Carries on drawing [line] from [vertex], its first node or its last.
+  ///
+  /// As drawing a new line, a point a click, but the points go onto the end
+  /// of [line] when it is finished rather than making a line of their own.
+  /// A `fixme=continue` or `noexit=yes` on the end is taken off, since the
+  /// line no longer stops there, and that goes with the rest of it as one
+  /// change to undo.
+  void _startContinuing(OsmWay line, OsmNode vertex) {
+    _drawingFrom = _edits.length;
+    final tags = Map.of(vertex.tags);
+    if (tags['fixme'] == 'continue') tags.remove('fixme');
+    if (tags['noexit'] == 'yes') tags.remove('noexit');
+    _edits.setTags(vertex, tags);
+    setState(() {
+      _selected.clear();
+      _continuing = (line.id, line.nodeIds.first == vertex.id);
+      _drawing
+        ..clear()
+        ..add(vertex.id);
+      _tool = MapTool.addLine;
+    });
+    _loader.editsChanged();
+  }
 
   /// Every region [element] is in, by where it is: a node where it stands,
   /// and a way where it starts. Nothing while the borders are not known, or
@@ -681,6 +873,12 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// While a line is being drawn that is its last point: the line is not a
   /// line yet, so there is nothing else it could mean.
   void _undo() {
+    // Carrying a line on with nothing added to it yet is only the start of
+    // it, and taking that back is giving up on it.
+    if (_continuing != null && _drawing.length <= 1) {
+      _abandonLine();
+      return;
+    }
     if (_drawing.isNotEmpty) {
       _removeLastPoint();
       return;
@@ -738,25 +936,6 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     if (made == null) return;
     _selectOnly(made);
     setState(_refreshPicked);
-    _loader.editsChanged();
-  }
-
-  /// Takes the selected nodes off the map.
-  void _deleteSelected() {
-    final nodes = _selected.values.whereType<PickedNode>().toList();
-    if (nodes.isEmpty) return;
-    for (final picked in nodes) {
-      _edits.deleteNode(
-        picked.node,
-        from: waysUsingNode(picked.id, _loader.store, _edits),
-      );
-    }
-    setState(() {
-      _selected.clear();
-      // What was pointed at may have just been taken off the map, or be a
-      // line that is a node shorter than it was.
-      _refreshPicked();
-    });
     _loader.editsChanged();
   }
 
@@ -871,6 +1050,33 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   void _finishLine() {
     final closing = _tool == MapTool.addArea;
     final from = _drawingFrom;
+    final continuing = _continuing;
+    if (continuing != null) {
+      final (id, fromStart) = continuing;
+      final line = _view.way(id);
+      final added = _drawing.skip(1).toList();
+      if (line != null && added.isNotEmpty) {
+        _edits.setWayNodes(line, [
+          if (fromStart) ...added.reversed,
+          ...line.nodeIds,
+          if (!fromStart) ...added,
+        ]);
+        if (from != null) _edits.combineSince(from);
+        _selectOnly(_view.way(id)!);
+      } else if (from != null) {
+        while (_edits.length > from) {
+          _edits.undo();
+        }
+      }
+      setState(() {
+        _drawing.clear();
+        _drawingFrom = null;
+        _continuing = null;
+        _tool = MapTool.browse;
+      });
+      _loader.editsChanged();
+      return;
+    }
     if (_drawing.length > (closing ? 2 : 1)) {
       final way = _edits.createWay(
         nodeIds: [..._drawing, if (closing) _drawing.first],
@@ -905,6 +1111,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     setState(() {
       _drawing.clear();
       _drawingFrom = null;
+      _continuing = null;
       _tool = MapTool.browse;
     });
     _loader.editsChanged();
@@ -988,10 +1195,23 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                 const _UndoIntent(),
             SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
                 const _UndoIntent(),
+            // iD's keys for what can be done to what is selected.
             const SingleActivator(LogicalKeyboardKey.delete):
-                const _DeleteIntent(),
-            const SingleActivator(LogicalKeyboardKey.backspace):
-                const _DeleteIntent(),
+                const _OperationIntent(OperationKind.delete),
+            const SingleActivator(LogicalKeyboardKey.delete, control: true):
+                const _OperationIntent(OperationKind.delete),
+            const SingleActivator(LogicalKeyboardKey.delete, meta: true):
+                const _OperationIntent(OperationKind.delete),
+            const SingleActivator(LogicalKeyboardKey.backspace, control: true):
+                const _OperationIntent(OperationKind.delete),
+            const SingleActivator(LogicalKeyboardKey.backspace, meta: true):
+                const _OperationIntent(OperationKind.delete),
+            const SingleActivator(LogicalKeyboardKey.keyA):
+                const _OperationIntent(OperationKind.continueLine),
+            const SingleActivator(LogicalKeyboardKey.keyE):
+                const _OperationIntent(OperationKind.extract),
+            const SingleActivator(LogicalKeyboardKey.keyV):
+                const _OperationIntent(OperationKind.reverse),
             const SingleActivator(LogicalKeyboardKey.enter):
                 const _FinishIntent(),
             const SingleActivator(LogicalKeyboardKey.numpadEnter):
@@ -1016,9 +1236,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                   return null;
                 },
               ),
-              _DeleteIntent: _MapAction<_DeleteIntent>(
-                onInvoke: (_) {
-                  _deleteSelected();
+              _OperationIntent: _MapAction<_OperationIntent>(
+                onInvoke: (intent) {
+                  _perform(intent.kind);
                   return null;
                 },
               ),
@@ -1054,6 +1274,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                     child: Listener(
                       onPointerDown: (event) {
                         _pressedAt = event.localPosition;
+                        if (event.kind == PointerDeviceKind.mouse &&
+                            event.buttons & kSecondaryMouseButton != 0) {
+                          _mapFocus.requestFocus();
+                          unawaited(
+                            _openMenu(event.localPosition, event.position),
+                          );
+                          return;
+                        }
                         // Pressing on the map takes the keys back from
                         // anything being typed into, which is also what
                         // applies tags being edited before the press can
@@ -1111,6 +1339,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                             _moveTo(camera);
                           },
                           onScaleEnd: (_) => _dragging = null,
+                          // Holding a finger down is the right click of a
+                          // touch screen.
+                          onLongPressStart: (details) => unawaited(
+                            _openMenu(
+                              details.localPosition,
+                              details.globalPosition,
+                            ),
+                          ),
                           child: RepaintBoundary(
                             child: CustomPaint(
                               painter: MapPainter(
@@ -1415,9 +1651,12 @@ class _UndoIntent extends Intent {
   const _UndoIntent();
 }
 
-/// Asks for what is selected to be taken off the map.
-class _DeleteIntent extends Intent {
-  const _DeleteIntent();
+/// Asks for something to be done to what is selected.
+class _OperationIntent extends Intent {
+  /// What.
+  final OperationKind kind;
+
+  const _OperationIntent(this.kind);
 }
 
 /// Asks for the line being drawn to be finished.
