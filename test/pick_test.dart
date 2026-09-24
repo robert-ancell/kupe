@@ -242,6 +242,49 @@ void _nodes() {
       expect(picked!.id, 102);
     });
 
+    group('a ring', () {
+      /// A roundabout drawn from the node in the middle of the view, which
+      /// is both its first node and its last.
+      MapStore roundabout() {
+        const d = 0.0004;
+        final nodes = [
+          const OsmNode(id: 1, latitude: _latitude, longitude: _longitude),
+          const OsmNode(id: 2, latitude: _latitude, longitude: _longitude + d),
+          const OsmNode(
+            id: 3,
+            latitude: _latitude - d,
+            longitude: _longitude + d,
+          ),
+          const OsmNode(id: 4, latitude: _latitude - d, longitude: _longitude),
+        ];
+        const way = OsmWay(
+          id: 5,
+          nodeIds: [1, 2, 3, 4, 1],
+          tags: {'highway': 'residential', 'junction': 'roundabout'},
+        );
+        return MapStore()
+          ..add(OsmTile.at(16, _latitude, _longitude), [...nodes, way]);
+      }
+
+      test('has no end to take hold of', () {
+        // The node it was drawn from is no different from the rest of it.
+        final picked = pickAt(_middle, _camera, _size, roundabout());
+        expect(picked, isA<PickedWay>());
+      });
+
+      test('gives up that node once it is selected', () {
+        final picked = pickAt(
+          _middle,
+          _camera,
+          _size,
+          roundabout(),
+          selectedWays: const {5},
+        );
+        expect(picked, isA<PickedNode>());
+        expect(picked!.id, 1);
+      });
+    });
+
     test('takes the node rather than the line it sits on', () {
       // Both are under the pointer; the node is the smaller thing and the
       // line can be taken anywhere else along it.

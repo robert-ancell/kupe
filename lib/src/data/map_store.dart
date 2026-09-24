@@ -16,7 +16,6 @@ class MapStore {
   final _byTile = <OsmTile, List<OsmElement>>{};
   final _nodeWays = <int, List<int>>{};
   final _nodeUses = <int, int>{};
-  final _nodeEnds = <int, int>{};
 
   /// Every node held, by id.
   Map<int, OsmNode> get nodes => _nodes;
@@ -79,9 +78,6 @@ class MapStore {
   /// able to take hold of whether or not anything is selected.
   int waysThrough(int id) => _nodeUses[id] ?? 0;
 
-  /// Whether the node with [id] is where some way starts or stops.
-  bool isEndOfWay(int id) => (_nodeEnds[id] ?? 0) > 0;
-
   /// Keeps the count of what runs through each node as ways come and go.
   void _count(OsmWay way, int by) {
     if (way.nodeIds.isEmpty) return;
@@ -97,14 +93,6 @@ class MapStore {
       } else {
         _nodeWays[id]?.remove(way.id);
         if (_nodeWays[id]?.isEmpty ?? false) _nodeWays.remove(id);
-      }
-    }
-    for (final id in {way.nodeIds.first, way.nodeIds.last}) {
-      final ends = (_nodeEnds[id] ?? 0) + by;
-      if (ends > 0) {
-        _nodeEnds[id] = ends;
-      } else {
-        _nodeEnds.remove(id);
       }
     }
   }

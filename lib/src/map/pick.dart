@@ -118,24 +118,37 @@ Picked? refreshed(Picked picked, MapStore store, OsmEdits edits) {
   }
 }
 
+/// Whether a node of a way is always there to be taken hold of, selected or
+/// not: where the way starts or stops, and where it meets another.
+///
+/// Those are what a line is pinned by. A way that comes back to where it
+/// started — a building, a roundabout — has no start or stop: the node the
+/// ring happens to have been drawn from is no different from the others, so
+/// only where something else meets it counts.
+///
+/// The one rule for both what is marked on the map and what can be taken
+/// hold of, so the two cannot disagree.
+bool isNodePinned(OsmWay way, int index, int Function(int nodeId) waysThrough) {
+  if (waysThrough(way.nodeIds[index]) > 1) return true;
+  if (way.isClosed) return false;
+  return index == 0 || index == way.nodeIds.length - 1;
+}
+
 /// Whether a node of a way can be taken hold of.
 ///
-/// Where a way starts or stops, and where ways meet, are always there to be
-/// taken: they are what a line is pinned by. The nodes along the middle of a
-/// line are only there once that line is selected, or every road would be a
-/// row of targets between the map and whatever is under it.
+/// Where it is pinned, by [isNodePinned], and anywhere along a way that is
+/// selected. The nodes along the middle of a line are only there once that
+/// line is selected, or every road would be a row of targets between the map
+/// and whatever is under it.
 bool isNodeSelectable(
   MapStore store,
   OsmWay way,
   int index, {
   Set<int> selectedWays = const {},
   int Function(int nodeId)? waysThrough,
-}) {
-  if (selectedWays.contains(way.id)) return true;
-  final id = way.nodeIds[index];
-  if ((waysThrough ?? store.waysThrough)(id) > 1) return true;
-  return index == 0 || index == way.nodeIds.length - 1;
-}
+}) =>
+    selectedWays.contains(way.id) ||
+    isNodePinned(way, index, waysThrough ?? store.waysThrough);
 
 /// The ways worth looking through for something under a point.
 ///

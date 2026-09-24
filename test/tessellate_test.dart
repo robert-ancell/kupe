@@ -223,6 +223,44 @@ void main() {
       expect(marksIn(_build(road(count: 8))), 2);
     });
 
+    test('marks no end on a line that comes back to where it started', () {
+      final nodes = {
+        1: const OsmNode(id: 1, latitude: -36.85, longitude: 174.7600),
+        2: const OsmNode(id: 2, latitude: -36.85, longitude: 174.7602),
+        3: const OsmNode(id: 3, latitude: -36.8502, longitude: 174.7602),
+      };
+      const ring = OsmWay(
+        id: 10,
+        nodeIds: [1, 2, 3, 1],
+        tags: {'highway': 'residential', 'junction': 'roundabout'},
+      );
+      final alone = OsmSubset(
+        matches: const [ring],
+        nodes: nodes,
+        ways: const {10: ring},
+        relations: const {},
+      );
+      expect(marksIn(_build(alone)), 0);
+
+      // Where a road joins it is still marked, and only there.
+      const joining = OsmWay(
+        id: 11,
+        nodeIds: [2, 4],
+        tags: {'highway': 'residential'},
+      );
+      final joined = OsmSubset(
+        matches: const [ring, joining],
+        nodes: {
+          ...nodes,
+          4: const OsmNode(id: 4, latitude: -36.8498, longitude: 174.7604),
+        },
+        ways: const {10: ring, 11: joining},
+        relations: const {},
+      );
+      // The junction, and the far end of the road joining.
+      expect(marksIn(_build(joined)), 2);
+    });
+
     test('marks nothing on a filled shape', () {
       final nodes = {
         1: const OsmNode(id: 1, latitude: -36.85, longitude: 174.7600),

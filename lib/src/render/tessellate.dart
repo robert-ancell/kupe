@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:osm/osm.dart';
 
+import '../map/pick.dart';
 import '../style/style.dart';
 import 'stroke.dart';
 import 'tile_mesh.dart';
@@ -149,11 +150,9 @@ _Outcome _way(
     builder.stroke(layer, points);
   }
 
-  // The points this line can be taken hold of without being selected first:
-  // where it starts and stops, and where other lines meet it.
+  // The points this line can be taken hold of without being selected first.
   for (var i = 0; i < way.nodeIds.length; i++) {
-    final ends = i == 0 || i == way.nodeIds.length - 1;
-    if (!ends && waysThrough(way.nodeIds[i]) < 2) continue;
+    if (!isNodePinned(way, i, waysThrough)) continue;
     builder.point(way.nodeIds[i], points[i * 2], points[i * 2 + 1]);
   }
   return _Outcome.drawn;
