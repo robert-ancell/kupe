@@ -1253,6 +1253,43 @@ void main() {
     });
   });
 
+  group('buttons over the map', () {
+    testWidgets('keep a drag that starts on them to themselves', (
+      tester,
+    ) async {
+      await _open(tester);
+      final before = _cameraLine(tester);
+      await tester.dragFrom(
+        tester.getCenter(find.text('Node 1')),
+        const Offset(-200, 150),
+      );
+      await tester.pump();
+      expect(_cameraLine(tester), before);
+    });
+
+    testWidgets('keep the scroll wheel to themselves', (tester) async {
+      await _open(tester);
+      final before = _cameraLine(tester);
+      final mouse = TestPointer(1, PointerDeviceKind.mouse);
+      await tester.sendEventToBinding(
+        mouse.hover(tester.getCenter(find.text('Line 2'))),
+      );
+      await tester.sendEventToBinding(mouse.scroll(const Offset(0, -120)));
+      await tester.pump();
+      expect(_cameraLine(tester), before);
+    });
+
+    testWidgets('still let the map be dragged beside them', (tester) async {
+      // The other half: taking the pointer away from the map everywhere
+      // would pass the test above too.
+      await _open(tester);
+      final before = _cameraLine(tester);
+      await tester.dragFrom(const Offset(400, 400), const Offset(-200, 150));
+      await tester.pump();
+      expect(_cameraLine(tester), isNot(before));
+    });
+  });
+
   group('signing in', () {
     /// The map, signing in however [signIn] says to.
     Future<void> open(

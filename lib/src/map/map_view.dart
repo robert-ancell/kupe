@@ -961,59 +961,67 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
             },
             child: Focus(
               autofocus: true,
-              child: Listener(
-                onPointerDown: (event) => _pressedAt = event.localPosition,
-                onPointerSignal: _scroll,
-                child: MouseRegion(
-                  onHover: (event) => _hover(event.localPosition),
-                  onExit: (_) {
-                    if (_hovered != null) setState(() => _hovered = null);
-                  },
-                  child: GestureDetector(
-                    onTapUp: (details) => _tap(details.localPosition),
-                    onScaleStart: (details) {
-                      _zoomFrom = _camera.zoom;
-                      _dragged = false;
-                      // A drag that starts on a node moves the node; anywhere else
-                      // it moves the map.
-                      // From where the pointer went down rather than from
-                      // where the gesture was recognised: a drag is only a
-                      // drag once it has moved, by which time it has left
-                      // anything as small as a node behind.
-                      _dragging = _tooFarToEdit
-                          ? null
-                          : nodeAt(
-                              _pressedAt ?? details.localFocalPoint,
-                              _camera,
-                              _size,
-                              _loader.store,
-                              selectedWays: _selectedWays,
-                              edits: _edits,
-                              zoom: loadZoom,
+              child: Stack(
+                children: [
+                  // Only the map takes the pointer. The buttons over it are
+                  // its siblings rather than its children, so a press, a
+                  // drag, a scroll or a hover on one of them stops at the
+                  // button instead of reaching the map underneath.
+                  Positioned.fill(
+                    child: Listener(
+                      onPointerDown: (event) =>
+                          _pressedAt = event.localPosition,
+                      onPointerSignal: _scroll,
+                      child: MouseRegion(
+                        onHover: (event) => _hover(event.localPosition),
+                        onExit: (_) {
+                          if (_hovered != null) setState(() => _hovered = null);
+                        },
+                        child: GestureDetector(
+                          onTapUp: (details) => _tap(details.localPosition),
+                          onScaleStart: (details) {
+                            _zoomFrom = _camera.zoom;
+                            _dragged = false;
+                            // A drag that starts on a node moves the node; anywhere else
+                            // it moves the map.
+                            // From where the pointer went down rather than from
+                            // where the gesture was recognised: a drag is only a
+                            // drag once it has moved, by which time it has left
+                            // anything as small as a node behind.
+                            _dragging = _tooFarToEdit
+                                ? null
+                                : nodeAt(
+                                    _pressedAt ?? details.localFocalPoint,
+                                    _camera,
+                                    _size,
+                                    _loader.store,
+                                    selectedWays: _selectedWays,
+                                    edits: _edits,
+                                    zoom: loadZoom,
+                                  );
+                          },
+                          onScaleUpdate: (details) {
+                            final held = _dragging;
+                            if (held != null && details.pointerCount < 2) {
+                              _dragNode(held, details.localFocalPoint);
+                              return;
+                            }
+                            var camera = _camera.panned(
+                              details.focalPointDelta,
                             );
-                    },
-                    onScaleUpdate: (details) {
-                      final held = _dragging;
-                      if (held != null && details.pointerCount < 2) {
-                        _dragNode(held, details.localFocalPoint);
-                        return;
-                      }
-                      var camera = _camera.panned(details.focalPointDelta);
-                      if (details.scale != 1) {
-                        final target =
-                            _zoomFrom! + math.log(details.scale) / math.ln2;
-                        camera = camera.zoomed(
-                          target - camera.zoom,
-                          details.localFocalPoint,
-                          size,
-                        );
-                      }
-                      _moveTo(camera);
-                    },
-                    onScaleEnd: (_) => _dragging = null,
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
+                            if (details.scale != 1) {
+                              final target =
+                                  _zoomFrom! +
+                                  math.log(details.scale) / math.ln2;
+                              camera = camera.zoomed(
+                                target - camera.zoom,
+                                details.localFocalPoint,
+                                size,
+                              );
+                            }
+                            _moveTo(camera);
+                          },
+                          onScaleEnd: (_) => _dragging = null,
                           child: RepaintBoundary(
                             child: CustomPaint(
                               painter: MapPainter(
@@ -1037,83 +1045,78 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                             ),
                           ),
                         ),
-                        Positioned(
-                          right: 12,
-                          top: 12,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              _AccountBar(
-                                account: _account,
-                                signingIn: _signingIn != null,
-                                onSignIn: _signIn,
-                                onCancel: _cancelSignIn,
-                                onSignOut: _signOut,
-                                changes: OsmUpload.of(_edits).length,
-                                onUpload: _upload,
-                              ),
-                              if (!_tooFarToEdit) ...[
-                                const SizedBox(height: 12),
-                                _Tools(
-                                  tool: _tool,
-                                  onChanged: (tool) => setState(() {
-                                    _drawing.clear();
-                                    _tool = _tool == tool
-                                        ? MapTool.browse
-                                        : tool;
-                                  }),
-                                ),
-                              ],
-                            ],
-                          ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 12,
+                    top: 12,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _AccountBar(
+                          account: _account,
+                          signingIn: _signingIn != null,
+                          onSignIn: _signIn,
+                          onCancel: _cancelSignIn,
+                          onSignOut: _signOut,
+                          changes: OsmUpload.of(_edits).length,
+                          onUpload: _upload,
                         ),
-                        if (_tooFarToEdit)
-                          Positioned.fill(
-                            child: Center(
-                              child: _ZoomToEdit(onPressed: _zoomToEdit),
-                            ),
+                        if (!_tooFarToEdit) ...[
+                          const SizedBox(height: 12),
+                          _Tools(
+                            tool: _tool,
+                            onChanged: (tool) => setState(() {
+                              _drawing.clear();
+                              _tool = _tool == tool ? MapTool.browse : tool;
+                            }),
                           ),
-                        if (_selected.isNotEmpty)
-                          Positioned(
-                            left: 12,
-                            bottom: 12,
-                            child: _Tags(selected: _selected.values.toList()),
-                          ),
-                        if (_notice case final notice?)
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 40,
-                            child: Center(
-                              child: _Notice(
-                                text: notice,
-                                onDismissed: () =>
-                                    setState(() => _notice = null),
-                              ),
-                            ),
-                          ),
-                        if (_source?.attribution case final credit?)
-                          Positioned(
-                            right: 8,
-                            bottom: 6,
-                            child: _Attribution(credit),
-                          ),
-                        Positioned(
-                          left: 12,
-                          top: 12,
-                          child: _Readout(
-                            camera: _camera,
-                            stats: _stats,
-                            loader: _loader,
-                            drawCalls: _drawCalls,
-                            imagery: _imageryState,
-                            edits: _edits.length,
-                          ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
-                ),
+                  if (_tooFarToEdit)
+                    Positioned.fill(
+                      child: Center(child: _ZoomToEdit(onPressed: _zoomToEdit)),
+                    ),
+                  if (_selected.isNotEmpty)
+                    Positioned(
+                      left: 12,
+                      bottom: 12,
+                      child: _Tags(selected: _selected.values.toList()),
+                    ),
+                  if (_notice case final notice?)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 40,
+                      child: Center(
+                        child: _Notice(
+                          text: notice,
+                          onDismissed: () => setState(() => _notice = null),
+                        ),
+                      ),
+                    ),
+                  if (_source?.attribution case final credit?)
+                    Positioned(
+                      right: 8,
+                      bottom: 6,
+                      child: _Attribution(credit),
+                    ),
+                  Positioned(
+                    left: 12,
+                    top: 12,
+                    child: _Readout(
+                      camera: _camera,
+                      stats: _stats,
+                      loader: _loader,
+                      drawCalls: _drawCalls,
+                      imagery: _imageryState,
+                      edits: _edits.length,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
