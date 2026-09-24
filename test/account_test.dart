@@ -27,12 +27,30 @@ void main() {
       expect((await Account.read(null)).isSignedIn, isFalse);
     });
 
-    test('remembers who was signed in', () async {
-      await const Account(token: 'a-token', user: 'Somebody').write(file);
+    test('remembers who was signed in and what they allowed', () async {
+      await const Account(
+        token: 'a-token',
+        user: 'Somebody',
+        scopes: {'write_api', 'read_prefs'},
+      ).write(file);
       final read = await Account.read(file);
       expect(read.token, 'a-token');
       expect(read.user, 'Somebody');
       expect(read.isSignedIn, isTrue);
+      expect(read.canUpload, isTrue);
+    });
+
+    test('remembers a token that was never allowed to upload', () async {
+      // Written before Kupe asked to be allowed to change the map. The token
+      // is good and does not expire; it simply cannot do this.
+      await const Account(
+        token: 'a-token',
+        user: 'Somebody',
+        scopes: {'read_prefs'},
+      ).write(file);
+      final read = await Account.read(file);
+      expect(read.isSignedIn, isTrue);
+      expect(read.canUpload, isFalse);
     });
 
     test('keeps the token to the one account it belongs to', () async {
@@ -48,10 +66,16 @@ void main() {
     });
 
     test('forgets the token when signed out', () {
-      const account = Account(token: 'a-token', user: 'Somebody');
+      const account = Account(
+        token: 'a-token',
+        user: 'Somebody',
+        scopes: {'write_api'},
+      );
       final out = account.copyWith(signedOut: true);
       expect(out.isSignedIn, isFalse);
       expect(out.user, isNull);
+      expect(out.scopes, isEmpty);
+      expect(out.canUpload, isFalse);
     });
 
     test('prefers a client ID put in by hand', () {
@@ -70,11 +94,33 @@ void main() {
       await _show(
         tester,
         const SignInDialog(
-          account: Account(token: 'a-token', user: 'Somebody'),
+          account: Account(
+            token: 'a-token',
+            user: 'Somebody',
+            scopes: {'write_api'},
+          ),
         ),
       );
       expect(find.textContaining('Somebody'), findsOneWidget);
       expect(find.byKey(const Key('sign-out')), findsOneWidget);
+      expect(find.byKey(const Key('sign-in')), findsNothing);
+    });
+
+    testWidgets('offers to sign in again for a token that cannot upload', (
+      tester,
+    ) async {
+      await _show(
+        tester,
+        const SignInDialog(
+          account: Account(
+            token: 'a-token',
+            user: 'Somebody',
+            scopes: {'read_prefs'},
+          ),
+        ),
+      );
+      expect(find.textContaining('did not include permission'), findsOneWidget);
+      expect(find.text('Sign in again'), findsOneWidget);
     });
 
     testWidgets('comes back with the account it signed in as', (tester) async {

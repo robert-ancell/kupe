@@ -81,8 +81,18 @@ class _SignInDialogState extends State<SignInDialog> {
           'you leave it signed in.';
     }
     final user = _account.user;
-    return 'Signed in${user == null ? '' : ' as $user'}. Changes you upload '
-        'will be made under that account.';
+    final who = user == null ? '' : ' as $user';
+    if (!_account.canUpload) {
+      // A token granted before Kupe asked to be allowed to upload goes on
+      // being short of it: OpenStreetMap's tokens do not expire, and a
+      // permission added to the registration never reaches one already
+      // issued. Saying so here is the difference between a sentence and a
+      // refusal part way through an upload.
+      return 'Signed in$who, but this sign-in did not include permission to '
+          'change the map. Sign in again to give it.';
+    }
+    return 'Signed in$who. Changes you upload will be made under that '
+        'account.';
   }
 
   @override
@@ -149,8 +159,8 @@ class _SignInDialogState extends State<SignInDialog> {
             key: const Key('sign-out'),
             onPressed: _busy ? null : _signOut,
             child: const Text('Sign out'),
-          )
-        else
+          ),
+        if (!_account.isSignedIn || !_account.canUpload)
           FilledButton.icon(
             key: const Key('sign-in'),
             onPressed: _busy ? null : _signIn,
@@ -161,7 +171,7 @@ class _SignInDialogState extends State<SignInDialog> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.open_in_browser),
-            label: const Text('Sign in'),
+            label: Text(_account.isSignedIn ? 'Sign in again' : 'Sign in'),
           ),
       ],
     );

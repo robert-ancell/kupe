@@ -234,7 +234,10 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// next change is made against a version that no longer exists.
   Future<void> _upload() async {
     final token = _account.token;
-    if (token == null) {
+    // Not signed in, or signed in with a token that was never granted
+    // permission to change the map. Both are the same thing to whoever is
+    // looking at it — go and sign in — and the window says which.
+    if (token == null || !_account.canUpload) {
       await _showAccount();
       return;
     }
@@ -1417,8 +1420,15 @@ class _AccountBar extends StatelessWidget {
           const SizedBox(width: 6),
         ],
         _ToolButton(
-          icon: account.isSignedIn ? Icons.person : Icons.person_outline,
-          label: account.user ?? 'Sign in',
+          // A token that cannot change the map is not the same as being
+          // signed in, whatever it says about who it belongs to, so it does
+          // not get the settled icon.
+          icon: account.canUpload
+              ? Icons.person
+              : account.isSignedIn
+              ? Icons.person_off_outlined
+              : Icons.person_outline,
+          label: account.canUpload ? (account.user ?? 'Signed in') : 'Sign in',
           chosen: false,
           onPressed: onAccount,
         ),

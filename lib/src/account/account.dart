@@ -40,11 +40,27 @@ class Account {
   /// Whose token it is, so the editor can say who an edit would be made as.
   final String? user;
 
-  /// Creates an account.
-  const Account({this.clientId, this.token, this.user});
+  /// What the token was granted when it was issued.
+  ///
+  /// Kept because it is not the same as what Kupe asks for. A token carries
+  /// what somebody agreed to at the moment they signed in, and a permission
+  /// added to the registration afterwards does not reach one already
+  /// issued — OpenStreetMap's tokens do not expire, so one short of what is
+  /// needed stays short of it until somebody signs in again. Knowing which
+  /// is what lets the editor say so before an upload rather than during one.
+  final Set<String> scopes;
 
-  /// Whether there is a token to edit with.
+  /// Creates an account.
+  const Account({this.clientId, this.token, this.user, this.scopes = const {}});
+
+  /// Whether there is a token at all.
   bool get isSignedIn => token != null;
+
+  /// Whether the token held is allowed to change the map.
+  ///
+  /// False while nobody is signed in, and false for a token granted before
+  /// Kupe asked to be allowed to upload.
+  bool get canUpload => isSignedIn && scopes.contains(osmWriteApiScope);
 
   /// The application to sign in as: one put in by hand if there is one, and
   /// the editor's own otherwise.
@@ -62,11 +78,13 @@ class Account {
     String? clientId,
     String? token,
     String? user,
+    Set<String>? scopes,
     bool signedOut = false,
   }) => Account(
     clientId: clientId ?? this.clientId,
     token: signedOut ? null : token ?? this.token,
     user: signedOut ? null : user ?? this.user,
+    scopes: signedOut ? const {} : scopes ?? this.scopes,
   );
 
   /// The account as it is written down.
@@ -74,6 +92,7 @@ class Account {
     if (clientId != null) 'clientId': clientId,
     if (token != null) 'token': token,
     if (user != null) 'user': user,
+    if (scopes.isNotEmpty) 'scopes': scopes.toList()..sort(),
   };
 
   /// An account out of what was written down.
@@ -81,10 +100,16 @@ class Account {
     if (json is! Map) return const Account();
     String? string(String key) =>
         json[key] is String ? json[key] as String : null;
+    final scopes = json['scopes'];
     return Account(
       clientId: string('clientId'),
       token: string('token'),
       user: string('user'),
+      scopes: {
+        if (scopes is List)
+          for (final scope in scopes)
+            if (scope is String) scope,
+      },
     );
   }
 
@@ -117,7 +142,7 @@ class Account {
   /// can say who an edit would be made as rather than only that it could be
   /// made.
   Future<Account> signIn({
-    Future<String> Function(OsmSignIn)? through,
+    Future<OsmToken> Function(OsmSignIn)? through,
     Future<String> Function(String token)? whoAmI,
   }) async {
     final clientId = signInAs;
@@ -132,8 +157,13 @@ class Account {
       redirectPort: kupeRedirectPort,
     );
     final token = await (through?.call(signIn) ?? signIn.tokenFromBrowser());
-    final user = await (whoAmI?.call(token) ?? _whoAmI(token));
-    return copyWith(token: token, user: user);
+    // Asked of OpenStreetMap only where the token is allowed to ask. A token
+    // without it is still worth keeping: the editor can say what it is short
+    // of, which is more use than refusing to hold it at all.
+    final user = token.covers('read_prefs')
+        ? await (whoAmI?.call(token.token) ?? _whoAmI(token.token))
+        : null;
+    return copyWith(token: token.token, user: user, scopes: token.scopes);
   }
 
   static Future<String> _whoAmI(String token) async {
