@@ -55,13 +55,16 @@ void main() {
   test('offers what applies to a line, in iD\'s order', () {
     final view = _roads();
     final offered = offeredOperations(view, [view.way(10)!]);
-    expect(_kinds(offered), [OperationKind.reverse, OperationKind.delete]);
-    expect(offered.first.title, 'Reverse');
-    expect(offered.first.key, 'V');
-    expect(
-      offered.first.description,
-      'Make this line go in the opposite direction.',
-    );
+    // It touches the footway at its end, so it can be disconnected from it.
+    expect(_kinds(offered), [
+      OperationKind.disconnect,
+      OperationKind.reverse,
+      OperationKind.delete,
+    ]);
+    final reverse = offered[1];
+    expect(reverse.title, 'Reverse');
+    expect(reverse.key, 'V');
+    expect(reverse.description, 'Make this line go in the opposite direction.');
     expect(offered.every((o) => o.enabled), isTrue);
   });
 
@@ -86,17 +89,59 @@ void main() {
   test('offers to pull a tagged node out of its line', () {
     final view = _roads();
     final offered = offeredOperations(view, [view.node(2)!]);
-    expect(_kinds(offered), [
-      OperationKind.continueLine,
-      OperationKind.extract,
-      OperationKind.delete,
-    ]);
+    final extract = offered.firstWhere((o) => o.kind == OperationKind.extract);
     expect(
-      offered[1].description,
+      extract.description,
       'Extract this point from its parent lines/areas.',
     );
     // From the middle of a line there is nothing to continue.
     expect(offered.first.disabled, 'No line can be continued here.');
+  });
+
+  test('offers to split, disconnect and pull out at a node along a line', () {
+    final view = _roads();
+    final offered = offeredOperations(view, [view.node(2)!]);
+    expect(_kinds(offered), [
+      OperationKind.continueLine,
+      OperationKind.disconnect,
+      OperationKind.extract,
+      OperationKind.split,
+      OperationKind.delete,
+    ]);
+    final split = offered.firstWhere((o) => o.kind == OperationKind.split);
+    expect(split.description, 'Divide this line into two at this point.');
+    expect(split.key, 'X');
+    // On one line only: nothing to disconnect it from.
+    final disconnect = offered.firstWhere(
+      (o) => o.kind == OperationKind.disconnect,
+    );
+    expect(
+      disconnect.disabled,
+      "There aren't enough lines/areas here to disconnect.",
+    );
+  });
+
+  test('offers to disconnect where lines meet', () {
+    final view = _roads();
+    final offered = offeredOperations(view, [view.node(3)!]);
+    final disconnect = offered.firstWhere(
+      (o) => o.kind == OperationKind.disconnect,
+    );
+    expect(disconnect.enabled, isTrue);
+    expect(disconnect.description, 'Disconnect the features at this point.');
+  });
+
+  test('offers to merge two lines, and says why it cannot', () {
+    final view = _roads();
+    final offered = offeredOperations(view, [view.way(10)!, view.way(11)!]);
+    final merge = offered.firstWhere((o) => o.kind == OperationKind.merge);
+    expect(merge.key, 'C');
+    // A residential road and a footway are not one thing.
+    expect(
+      merge.disabled,
+      "These features can't be merged because some of their tags have "
+      'conflicting values.',
+    );
   });
 
   test('says why part of a route cannot be deleted', () {

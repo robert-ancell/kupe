@@ -727,6 +727,17 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           }
           _refreshPicked();
         });
+      case OperationKind.disconnect:
+        OsmDisconnect(view, selected).apply();
+        _loader.editsChanged();
+        setState(_refreshPicked);
+      case OperationKind.merge:
+        _selectAfter(OsmMerge(view, selected).apply());
+      case OperationKind.split:
+        final ways = OsmSplit(view, selected).apply();
+        // The nodes and the pieces, so that they can be disconnected
+        // straight away if that is what is wanted next.
+        _selectAfter([...selected.whereType<OsmNode>(), ...ways]);
       case OperationKind.reverse:
         OsmReverse(view, selected).apply();
         _loader.editsChanged();
@@ -741,6 +752,39 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           _refreshPicked();
         });
     }
+  }
+
+  /// Selects [elements] as they now stand once an operation has changed
+  /// them.
+  void _selectAfter(List<OsmElement> elements) {
+    _loader.editsChanged();
+    final view = _view;
+    setState(() {
+      _selected.clear();
+      for (final element in elements) {
+        final picked = switch (element) {
+          OsmNode() => switch (view.node(element.id)) {
+            final node? => PickedNode(
+              node: node,
+              worldX: Mercator.x(node.longitude),
+              worldY: Mercator.y(node.latitude),
+            ),
+            null => null,
+          },
+          OsmWay() => switch (view.way(element.id)) {
+            final way? => PickedWay(
+              way: way,
+              points: _pointsOfWay(way),
+              width: pickWidthOf(way),
+            ),
+            null => null,
+          },
+          OsmRelation() => null,
+        };
+        if (picked != null) _selected[(picked.type, picked.id)] = picked;
+      }
+      _refreshPicked();
+    });
   }
 
   /// Opens the menu of what can be done, at [at] on the map and [global] on
@@ -1208,8 +1252,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                 const _OperationIntent(OperationKind.delete),
             const SingleActivator(LogicalKeyboardKey.keyA):
                 const _OperationIntent(OperationKind.continueLine),
+            const SingleActivator(LogicalKeyboardKey.keyD):
+                const _OperationIntent(OperationKind.disconnect),
             const SingleActivator(LogicalKeyboardKey.keyE):
                 const _OperationIntent(OperationKind.extract),
+            const SingleActivator(LogicalKeyboardKey.keyC):
+                const _OperationIntent(OperationKind.merge),
+            const SingleActivator(LogicalKeyboardKey.keyX):
+                const _OperationIntent(OperationKind.split),
             const SingleActivator(LogicalKeyboardKey.keyV):
                 const _OperationIntent(OperationKind.reverse),
             const SingleActivator(LogicalKeyboardKey.enter):

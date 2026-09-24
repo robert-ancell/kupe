@@ -1541,6 +1541,24 @@ void main() {
       expect(selectedWay(tester).nodeIds, before.reversed.toList());
     });
 
+    testWidgets('splits a line where a node along it is selected', (
+      tester,
+    ) async {
+      await openOver(tester);
+      // Selecting the road is what makes the nodes along it selectable.
+      await _click(tester, road);
+      await _click(tester, const Offset(500, 400));
+      expect(_painterIn(tester).selection.single, isA<PickedNode>());
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyX);
+      await tester.pump();
+      // The node and both pieces, ready to be disconnected.
+      final selection = _painterIn(tester).selection;
+      expect(selection.whereType<PickedNode>(), hasLength(1));
+      final pieces = selection.whereType<PickedWay>().toList();
+      expect(pieces, hasLength(2));
+      expect(pieces.map((p) => p.way.nodeIds.length), everyElement(2));
+    });
+
     testWidgets('carries a line on from its end, as one change', (
       tester,
     ) async {

@@ -7,11 +7,20 @@ enum OperationKind {
   /// Carrying on drawing a line from its end.
   continueLine,
 
+  /// Giving what is selected nodes of its own where it touches anything.
+  disconnect,
+
   /// Pulling a point out of what is selected.
   extract,
 
+  /// Making what is selected one.
+  merge,
+
   /// Turning what is selected round.
   reverse,
+
+  /// Dividing lines where the selected nodes are.
+  split,
 
   /// Taking what is selected off the map.
   delete,
@@ -93,6 +102,38 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
+  final disconnect = OsmDisconnect(view, selected);
+  if (disconnect.available) {
+    final points = selected.whereType<OsmNode>().isNotEmpty
+        ? selected.whereType<OsmNode>().length
+        : selected.whereType<OsmWay>().length;
+    offered.add(
+      OfferedOperation(
+        kind: OperationKind.disconnect,
+        title: 'Disconnect',
+        icon: Icons.link_off,
+        key: 'D',
+        description:
+            _disconnectDescriptions[disconnect.kind] ??
+            'Disconnect these features from each other.',
+        disabled: tooLarge
+            ? points == 1
+                  ? "This can't be disconnected because not enough of it is "
+                        'currently visible.'
+                  : "These can't be disconnected because not enough of them "
+                        'are currently visible.'
+            : switch (disconnect.disabled) {
+                'not_connected' =>
+                  "There aren't enough lines/areas here to disconnect.",
+                'relation' =>
+                  "This can't be disconnected because it connects members of "
+                      'a relation.',
+                _ => null,
+              },
+      ),
+    );
+  }
+
   final extract = OsmExtract(view, selected, presets: presets, here: here);
   if (extract.available) {
     final shapes = {for (final e in selected) view.geometryOf(e)};
@@ -130,6 +171,30 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
+  final merge = OsmMerge(view, selected);
+  if (merge.available) {
+    offered.add(
+      OfferedOperation(
+        kind: OperationKind.merge,
+        title: 'Merge',
+        icon: Icons.merge_type,
+        key: 'C',
+        description: 'Merge these features.',
+        disabled: switch (merge.disabled) {
+          null => null,
+          'restriction' =>
+            "These features can't be merged because it would damage a "
+                '"Restriction" relation.',
+          'connectivity' =>
+            "These features can't be merged because it would damage a "
+                '"Lane Connectivity" relation.',
+          final reason =>
+            _mergeReasons[reason] ?? "These features can't be merged.",
+        },
+      ),
+    );
+  }
+
   final reverse = OsmReverse(view, selected);
   if (reverse.available) {
     offered.add(
@@ -144,6 +209,35 @@ List<OfferedOperation> offeredOperations(
           'line' => 'Make this line go in the opposite direction.',
           'lines' => 'Make these lines go in the opposite direction.',
           _ => 'Flip the directions of these features.',
+        },
+      ),
+    );
+  }
+
+  final split = OsmSplit(view, selected);
+  if (split.available) {
+    final ways = split.ways.length <= 1 ? 'single' : 'multiple';
+    final nodes = selected.whereType<OsmNode>().length == 1
+        ? 'single_node'
+        : 'multiple_node';
+    offered.add(
+      OfferedOperation(
+        kind: OperationKind.split,
+        title: 'Split',
+        icon: Icons.content_cut,
+        key: 'X',
+        description:
+            _splitDescriptions['${split.kind}.$ways.$nodes'] ??
+            _splitDescriptions['feature.multiple.$nodes']!,
+        disabled: switch (split.disabled) {
+          'not_eligible' => "Lines can't be split at their beginning or end.",
+          'parent_incomplete' =>
+            'This line cannot be split because a parent relation isn’t '
+                'fully downloaded. Download the full relation.',
+          'simple_roundabout' =>
+            'This line cannot be split because this roundabout is part of a '
+                'larger relation. You must remove it from the relation first.',
+          _ => null,
         },
       ),
     );
@@ -189,6 +283,77 @@ List<OfferedOperation> offeredOperations(
 
   return offered;
 }
+
+/// What disconnecting does, in iD's words, by what is disconnected.
+const _disconnectDescriptions = {
+  'no_points.single_way.line': 'Disconnect this line from other features.',
+  'no_points.single_way.area': 'Disconnect this area from other features.',
+  'no_points.multiple_ways.conjoined':
+      'Disconnect these features from each other.',
+  'no_points.multiple_ways.separate':
+      'Disconnect these features from everything.',
+  'single_point.no_ways': 'Disconnect the features at this point.',
+  'single_point.single_way.line': 'Disconnect the selected line at this point.',
+  'single_point.single_way.area': 'Disconnect the selected area at this point.',
+  'single_point.multiple_ways':
+      'Disconnect the selected features at this point.',
+  'multiple_points.no_ways': 'Disconnect the features at these points.',
+  'multiple_points.single_way.line':
+      'Disconnect the selected line at these points.',
+  'multiple_points.single_way.area':
+      'Disconnect the selected area at these points.',
+  'multiple_points.multiple_ways':
+      'Disconnect the selected features at these points.',
+};
+
+/// Why merging cannot be done, in iD's words.
+const _mergeReasons = {
+  'not_eligible': "These features can't be merged.",
+  'not_adjacent':
+      "These features can't be merged because their endpoints aren't "
+      'connected.',
+  'relation':
+      "These features can't be merged because they have conflicting "
+      'relation roles.',
+  'incomplete_relation':
+      "These features can't be merged because at least one hasn't been "
+      'fully downloaded.',
+  'conflicting_tags':
+      "These features can't be merged because some of their tags have "
+      'conflicting values.',
+  'conflicting_relations':
+      "These features can't be merged because they belong to conflicting "
+      'relations.',
+  'paths_intersect':
+      "These features can't be merged because the resulting path would "
+      'intersect itself.',
+  'too_many_vertices':
+      "These features can't be merged because the resulting path would "
+      'have too many points.',
+};
+
+/// What splitting does, in iD's words, by what is split, how many, and at
+/// how many nodes.
+const _splitDescriptions = {
+  'line.single.single_node': 'Divide this line into two at this point.',
+  'line.single.multiple_node': 'Divide this line at these points.',
+  'line.multiple.single_node':
+      'Divide all lines at this point. Tip: To limit this operation to a '
+      'specific line, select both the line and point before performing the '
+      'split.',
+  'line.multiple.multiple_node':
+      'Divide all lines at these points. Tip: To limit this operation to a '
+      'specific line, select the line as well as the points before '
+      'performing the split.',
+  'area.single.single_node':
+      'Divide the edge of this area into two at this point.',
+  'area.single.multiple_node': 'Divide the edge of this area at these points.',
+  'area.multiple.single_node': 'Divide the edges of these areas at this point.',
+  'area.multiple.multiple_node':
+      'Divide the edges of these areas at these points.',
+  'feature.multiple.single_node': 'Divide these features at this point.',
+  'feature.multiple.multiple_node': 'Divide these features at these points.',
+};
 
 /// Whether too little of what lies within [selection] is inside [view] to
 /// be sure of what is being done to it: less than four fifths of it, as iD
