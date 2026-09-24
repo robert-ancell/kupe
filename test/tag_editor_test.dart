@@ -157,6 +157,13 @@ void main() {
           'tags': {'building': 'house'},
           'geometry': ['area'],
         },
+        'man_made/footwear_decontamination-AU-NZ': {
+          'tags': {'man_made': 'footwear_decontamination'},
+          'geometry': ['point'],
+          'locationSet': {
+            'include': ['au', 'nz'],
+          },
+        },
       }),
       translations: jsonEncode({
         'en': {
@@ -172,6 +179,9 @@ void main() {
               'highway/service': {'name': 'Service Road'},
               'amenity/cafe': {'name': 'Cafe'},
               'building/house': {'name': 'House'},
+              'man_made/footwear_decontamination-AU-NZ': {
+                'name': 'Footwear Decontamination Station',
+              },
             },
           },
         },
@@ -208,19 +218,23 @@ void main() {
       tags: {'building': 'house', 'name': 'Mine'},
     );
 
-    Future<void> showKinds(WidgetTester tester, List<OsmElement> elements) =>
-        tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: TagEditor(
-                elements: elements,
-                presets: presets,
-                geometryOf: geometryOf,
-                onChanged: _applied.add,
-              ),
-            ),
+    Future<void> showKinds(
+      WidgetTester tester,
+      List<OsmElement> elements, {
+      Set<String> here = const {},
+    }) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TagEditor(
+            elements: elements,
+            presets: presets,
+            geometryOf: geometryOf,
+            regionsOf: (_) => here,
+            onChanged: _applied.add,
           ),
-        );
+        ),
+      ),
+    );
 
     Future<void> openPicker(WidgetTester tester) async {
       await tester.tap(find.byKey(const Key('change-kind')));
@@ -313,6 +327,30 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('tags')), findsOneWidget);
       expect(_applied, isEmpty);
+    });
+
+    testWidgets('offers what only exists in some places only there', (
+      tester,
+    ) async {
+      Future<bool> offered(Set<String> here) async {
+        // A fresh editor each time, not the last one with its list open.
+        await tester.pumpWidget(const SizedBox());
+        await showKinds(tester, const [shop], here: here);
+        await openPicker(tester);
+        await tester.enterText(
+          find.byKey(const Key('preset-search')),
+          'footwear',
+        );
+        await tester.pumpAndSettle();
+        return find
+            .text('Footwear Decontamination Station')
+            .evaluate()
+            .isNotEmpty;
+      }
+
+      expect(await offered(const {'nz', 'q664'}), isTrue);
+      expect(await offered(const {'de'}), isFalse);
+      expect(await offered(const {}), isFalse);
     });
   });
 }

@@ -18,6 +18,10 @@ class PresetPicker extends StatefulWidget {
   /// What it is now, if everything selected is the same.
   final OsmPreset? current;
 
+  /// The codes of every region what is selected is in. Kinds that only
+  /// exist somewhere else are not offered.
+  final Set<String> here;
+
   /// Called with what was chosen.
   final ValueChanged<OsmPreset> onChosen;
 
@@ -32,6 +36,7 @@ class PresetPicker extends StatefulWidget {
     required this.onChosen,
     required this.onCancelled,
     this.current,
+    this.here = const {},
   });
 
   @override
@@ -60,7 +65,7 @@ class _PresetPickerState extends State<PresetPicker> {
   bool _offered(OsmPreset preset) =>
       preset.searchable &&
       preset.replacement == null &&
-      preset.appliesAt(const {}) &&
+      preset.appliesAt(widget.here) &&
       preset.geometry.containsAll(widget.geometries);
 
   /// What to show: presets, and categories to open.
@@ -72,6 +77,7 @@ class _PresetPickerState extends State<PresetPicker> {
         for (final preset in presets.search(
           query,
           widget.geometries.first,
+          here: widget.here,
           limit: 100,
         ))
           if (_offered(preset)) preset,

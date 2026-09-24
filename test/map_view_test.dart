@@ -1436,6 +1436,108 @@ void main() {
     });
   });
 
+  group('where it is', () {
+    /// A road, and a kind of road only one country has.
+    final presets = OsmPresets.parse(
+      presets: jsonEncode({
+        'line': {
+          'tags': <String, String>{},
+          'geometry': ['line'],
+          'matchScore': 0.1,
+        },
+        'highway/residential': {
+          'tags': {'highway': 'residential'},
+          'geometry': ['line'],
+          'locationSet': {
+            'include': ['001'],
+            'exclude': ['xa'],
+          },
+        },
+        'highway/residential-XA': {
+          'tags': {'highway': 'residential'},
+          'geometry': ['line'],
+          'locationSet': {
+            'include': ['xa'],
+          },
+        },
+      }),
+      translations: jsonEncode({
+        'en': {
+          'presets': {
+            'presets': {
+              'line': {'name': 'Line'},
+              'highway/residential': {'name': 'Residential Road'},
+              'highway/residential-XA': {'name': 'Examplian Street'},
+            },
+          },
+        },
+      }),
+    );
+
+    /// A country taking in everywhere the map looks.
+    final countries = OsmCountries.parse(
+      jsonEncode({
+        'type': 'FeatureCollection',
+        'features': [
+          {
+            'type': 'Feature',
+            'properties': {'iso1A2': 'XA', 'nameEn': 'Examplia'},
+            'geometry': {
+              'type': 'Polygon',
+              'coordinates': [
+                [
+                  [170, -40],
+                  [180, -40],
+                  [180, -30],
+                  [170, -30],
+                  [170, -40],
+                ],
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    Future<void> openOver(WidgetTester tester, OsmCountries? known) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: _twoRoads),
+              initialCamera: Camera.at(
+                latitude: _roadLatitude,
+                longitude: 174.76,
+                zoom: 18,
+              ),
+              presets: ValueNotifier(presets),
+              countries: ValueNotifier(known),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+    }
+
+    testWidgets('names things as they are named everywhere until it knows', (
+      tester,
+    ) async {
+      await openOver(tester, null);
+      await _click(tester, const Offset(500, 400));
+      expect(find.text('Residential Road'), findsOneWidget);
+    });
+
+    testWidgets('names things as they are named in the country they are in', (
+      tester,
+    ) async {
+      await openOver(tester, countries);
+      await _click(tester, const Offset(500, 400));
+      expect(find.text('Examplian Street'), findsOneWidget);
+    });
+  });
+
   group('buttons over the map', () {
     testWidgets('keep a drag that starts on them to themselves', (
       tester,

@@ -60,6 +60,7 @@ Future<void> main(List<String> arguments) async {
   File? place;
   File? indexFile;
   Directory? presetsDirectory;
+  Directory? countriesDirectory;
   File? accountFile;
   try {
     final directory = await getApplicationCacheDirectory();
@@ -70,6 +71,7 @@ Future<void> main(List<String> arguments) async {
     place = File('${directory.path}/last-place.json');
     indexFile = File('${directory.path}/editor-layer-index.geojson');
     presetsDirectory = Directory('${directory.path}/presets');
+    countriesDirectory = Directory('${directory.path}/countries');
     // Not in the cache: a token is a key to somebody's OpenStreetMap
     // account, and a cache is a thing anything is entitled to empty.
     accountFile = File(
@@ -110,6 +112,19 @@ Future<void> main(List<String> arguments) async {
     );
   }
 
+  // Which country a place is in, which is what says which of the kinds of
+  // thing that only exist in some countries apply here. Until it is in, only
+  // the ones meant for everywhere do.
+  final countries = ValueNotifier<OsmCountries?>(null);
+  if (countriesDirectory != null) {
+    unawaited(
+      OsmCountriesFile.read(
+        directory: countriesDirectory,
+        fetch: httpFetch(contact: contact),
+      ).then((read) => countries.value = read),
+    );
+  }
+
   final left = place == null ? null : await LastPlace.read(place);
 
   runApp(
@@ -129,6 +144,7 @@ Future<void> main(List<String> arguments) async {
       imageryIndex: index,
       imageryFetch: imageryFetch,
       presets: presets,
+      countries: countries,
     ),
   );
 }
@@ -159,6 +175,9 @@ class KupeApp extends StatelessWidget {
   /// What kinds of thing there are on the map, once they are known.
   final ValueListenable<OsmPresets?>? presets;
 
+  /// Which country a place is in, once the borders are known.
+  final ValueListenable<OsmCountries?>? countries;
+
   /// Creates the app.
   const KupeApp({
     super.key,
@@ -170,6 +189,7 @@ class KupeApp extends StatelessWidget {
     this.imageryIndex,
     this.imageryFetch,
     this.presets,
+    this.countries,
   });
 
   @override
@@ -190,6 +210,7 @@ class KupeApp extends StatelessWidget {
           imageryIndex: imageryIndex,
           imageryFetch: imageryFetch,
           presets: presets,
+          countries: countries,
         ),
       ),
     );

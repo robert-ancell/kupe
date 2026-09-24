@@ -117,6 +117,11 @@ class MapView extends StatefulWidget {
   /// says a selected node is a cafe, and what it can be made instead.
   final ValueListenable<OsmPresets?>? presets;
 
+  /// Which country a place is in, once the borders are known: what says
+  /// which of the kinds that only exist in some countries apply to what is
+  /// selected.
+  final ValueListenable<OsmCountries?>? countries;
+
   /// How to sign in, given the account as it stands and a future that
   /// completes if it is given up on. Replaced in tests, which have no
   /// browser.
@@ -135,6 +140,7 @@ class MapView extends StatefulWidget {
     this.imageryCache,
     this.imageryFetch,
     this.presets,
+    this.countries,
   });
 
   @override
@@ -232,6 +238,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     super.initState();
     widget.imageryIndex?.addListener(_indexChanged);
     widget.presets?.addListener(_presetsChanged);
+    widget.countries?.addListener(_presetsChanged);
     unawaited(
       Account.read(widget.account).then((account) {
         if (mounted) setState(() => _account = account);
@@ -357,6 +364,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _zoomer.dispose();
     widget.imageryIndex?.removeListener(_indexChanged);
     widget.presets?.removeListener(_presetsChanged);
+    widget.countries?.removeListener(_presetsChanged);
     _settle?.cancel();
     _check?.cancel();
     _loader.dispose();
@@ -635,6 +643,24 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
               ? OsmGeometry.area
               : OsmGeometry.relation,
       };
+
+  /// Every region [element] is in, by where it is: a node where it stands,
+  /// and a way where it starts. Nothing while the borders are not known, or
+  /// for something with nowhere to stand, which leaves only what is meant
+  /// for everywhere.
+  Set<String> _regionsOf(OsmElement element) {
+    final countries = widget.countries?.value;
+    if (countries == null) return const {};
+    final node = switch (element) {
+      OsmNode() => _edits.changedNode(element.id) ?? element,
+      OsmWay() when element.nodeIds.isNotEmpty =>
+        _edits.changedNode(element.nodeIds.first) ??
+            _loader.store.nodes[element.nodeIds.first],
+      _ => null,
+    };
+    if (node == null) return const {};
+    return countries.codesAt(node.latitude, node.longitude);
+  }
 
   /// Gives each element its new tags, all as one change.
   ///
@@ -1154,6 +1180,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                         ],
                         presets: widget.presets?.value,
                         geometryOf: _geometryOf,
+                        regionsOf: _regionsOf,
                         onChanged: _setTags,
                         returnFocus: _mapFocus,
                       ),

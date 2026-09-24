@@ -37,6 +37,10 @@ class TagEditor extends StatefulWidget {
   final OsmGeometry Function(OsmElement element, OsmPresets presets)?
   geometryOf;
 
+  /// The codes of every region an element is in, which is what decides
+  /// which of the kinds that only exist in some places it can be.
+  final Set<String> Function(OsmElement element)? regionsOf;
+
   /// Creates the editor.
   const TagEditor({
     super.key,
@@ -45,6 +49,7 @@ class TagEditor extends StatefulWidget {
     this.returnFocus,
     this.presets,
     this.geometryOf,
+    this.regionsOf,
   });
 
   @override
@@ -169,7 +174,8 @@ class _TagEditorState extends State<TagEditor> {
     final kinds = <(OsmPreset, OsmGeometry)>[];
     for (final element in widget.elements) {
       final geometry = geometryOf(element, presets);
-      kinds.add((presets.match(element.tags, geometry), geometry));
+      final here = widget.regionsOf?.call(element) ?? const {};
+      kinds.add((presets.match(element.tags, geometry, here: here), geometry));
     }
     return kinds;
   }
@@ -291,6 +297,10 @@ class _TagEditorState extends State<TagEditor> {
                   presets: presets,
                   geometries: {for (final (_, geometry) in kinds) geometry},
                   current: _shared(kinds),
+                  // Where the first of them is: a selection is seldom
+                  // spread over more than one country.
+                  here:
+                      widget.regionsOf?.call(widget.elements.first) ?? const {},
                   onChosen: _choose,
                   onCancelled: () => setState(() => _picking = false),
                 )
