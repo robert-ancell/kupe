@@ -113,6 +113,10 @@ class MapView extends StatefulWidget {
   /// the API could have used.
   final OsmFetch? imageryFetch;
 
+  /// What kinds of thing there are on the map, once they are known: what
+  /// says a selected node is a cafe, and what it can be made instead.
+  final ValueListenable<OsmPresets?>? presets;
+
   /// How to sign in, given the account as it stands and a future that
   /// completes if it is given up on. Replaced in tests, which have no
   /// browser.
@@ -130,6 +134,7 @@ class MapView extends StatefulWidget {
     this.imageryIndex,
     this.imageryCache,
     this.imageryFetch,
+    this.presets,
   });
 
   @override
@@ -226,6 +231,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   void initState() {
     super.initState();
     widget.imageryIndex?.addListener(_indexChanged);
+    widget.presets?.addListener(_presetsChanged);
     unawaited(
       Account.read(widget.account).then((account) {
         if (mounted) setState(() => _account = account);
@@ -350,6 +356,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   void dispose() {
     _zoomer.dispose();
     widget.imageryIndex?.removeListener(_indexChanged);
+    widget.presets?.removeListener(_presetsChanged);
     _settle?.cancel();
     _check?.cancel();
     _loader.dispose();
@@ -602,6 +609,32 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     });
     if (first) _loader.editsChanged();
   }
+
+  void _presetsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// The shape [element] takes, as far as what it can be is concerned.
+  ///
+  /// A node is a vertex when it is in a way, drawn since or read, and a point
+  /// when it stands alone. A way is an area when it is closed and its tags
+  /// say so, by the same rule the presets are chosen by, and a line
+  /// otherwise.
+  OsmGeometry _geometryOf(OsmElement element, OsmPresets presets) =>
+      switch (element) {
+        OsmNode() =>
+          waysUsingNode(element.id, _loader.store, _edits).isEmpty
+              ? OsmGeometry.point
+              : OsmGeometry.vertex,
+        OsmWay() =>
+          element.isClosed && presets.isArea(element.tags)
+              ? OsmGeometry.area
+              : OsmGeometry.line,
+        OsmRelation() =>
+          element.tags['type'] == 'multipolygon'
+              ? OsmGeometry.area
+              : OsmGeometry.relation,
+      };
 
   /// Gives each element its new tags, all as one change.
   ///
@@ -1119,6 +1152,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                         elements: [
                           for (final picked in _selected.values) picked.element,
                         ],
+                        presets: widget.presets?.value,
+                        geometryOf: _geometryOf,
                         onChanged: _setTags,
                         returnFocus: _mapFocus,
                       ),

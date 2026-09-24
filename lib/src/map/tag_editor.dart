@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:osm/osm.dart';
 
+import 'preset_picker.dart';
+
 /// The tags of what is selected, as text that can be edited.
 ///
 /// One `key=value` to a line, the way iD's text view shows them. With
@@ -26,12 +28,23 @@ class TagEditor extends StatefulWidget {
   /// whatever it would be doing if the text had never been clicked.
   final FocusNode? returnFocus;
 
+  /// What kinds of thing there are, once they are known. With them the
+  /// editor says what is selected rather than only which element it is, and
+  /// offers to make it something else.
+  final OsmPresets? presets;
+
+  /// The shape of an element, which is what decides what it can be.
+  final OsmGeometry Function(OsmElement element, OsmPresets presets)?
+  geometryOf;
+
   /// Creates the editor.
   const TagEditor({
     super.key,
     required this.elements,
     required this.onChanged,
     this.returnFocus,
+    this.presets,
+    this.geometryOf,
   });
 
   @override
@@ -145,19 +158,80 @@ class _TagEditorState extends State<TagEditor> {
     super.dispose();
   }
 
-  String get _title {
+  /// Whether the list of kinds is showing in place of the text.
+  bool _picking = false;
+
+  /// What each element is, and the shape it takes, if the kinds are known.
+  List<(OsmPreset, OsmGeometry)>? get _kinds {
+    final presets = widget.presets;
+    final geometryOf = widget.geometryOf;
+    if (presets == null || geometryOf == null) return null;
+    final kinds = <(OsmPreset, OsmGeometry)>[];
+    for (final element in widget.elements) {
+      final geometry = geometryOf(element, presets);
+      kinds.add((presets.match(element.tags, geometry), geometry));
+    }
+    return kinds;
+  }
+
+  /// What everything selected is, if it is all the same kind.
+  static OsmPreset? _shared(List<(OsmPreset, OsmGeometry)>? kinds) {
+    if (kinds == null || kinds.isEmpty) return null;
+    final first = kinds.first.$1;
+    return kinds.every((kind) => kind.$1.id == first.id) ? first : null;
+  }
+
+  String _title(List<(OsmPreset, OsmGeometry)>? kinds) {
     final elements = widget.elements;
     if (elements.length > 1) return '${elements.length} selected';
-    final only = elements.single;
-    return switch (only.type) {
-      OsmElementType.node => 'Node ${only.id}',
-      OsmElementType.way => 'Way ${only.id}',
-      OsmElementType.relation => 'Relation ${only.id}',
-    };
+    return kinds?.single.$1.name ?? _idOf(elements.single);
   }
+
+  /// What goes under the title: which element it is, or for several, what
+  /// they all are.
+  String? _subtitle(List<(OsmPreset, OsmGeometry)>? kinds) {
+    final elements = widget.elements;
+    if (elements.length > 1) return _shared(kinds)?.name;
+    return kinds == null ? null : _idOf(elements.single);
+  }
+
+  static String _idOf(OsmElement element) => switch (element.type) {
+    OsmElementType.node => 'Node ${element.id}',
+    OsmElementType.way => 'Way ${element.id}',
+    OsmElementType.relation => 'Relation ${element.id}',
+  };
+
+  /// Makes everything selected [chosen], as one change.
+  ///
+  /// Each element stops being what it was — the tags that said so come off
+  /// — and becomes [chosen], keeping everything else it is tagged with: a
+  /// house made a cafe keeps its name and its address.
+  void _choose(OsmPreset chosen) {
+    final presets = widget.presets!;
+    final kinds = _kinds!;
+    final changes = <(OsmElement, Map<String, String>)>[];
+    for (var i = 0; i < widget.elements.length; i++) {
+      final element = widget.elements[i];
+      final (was, geometry) = kinds[i];
+      final tags = chosen.applyTo(
+        was.removeFrom(element.tags),
+        geometry,
+        presets,
+      );
+      if (!_sameTags(tags, element.tags)) changes.add((element, tags));
+    }
+    setState(() => _picking = false);
+    if (changes.isNotEmpty) widget.onChanged(changes);
+  }
+
+  static bool _sameTags(Map<String, String> a, Map<String, String> b) =>
+      a.length == b.length && a.entries.every((e) => b[e.key] == e.value);
 
   @override
   Widget build(BuildContext context) {
+    final kinds = _kinds;
+    final presets = widget.presets;
+    final subtitle = _subtitle(kinds);
     const text = TextStyle(
       color: Color(0xffffffff),
       fontSize: 12,
@@ -175,43 +249,80 @@ class _TagEditorState extends State<TagEditor> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                _title,
-                style: const TextStyle(
-                  color: Color(0xff9ec1ff),
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _title(kinds),
+                          key: const Key('kind'),
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xff9ec1ff),
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (subtitle != null)
+                          Text(
+                            subtitle,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xffa0a6ad),
+                              fontSize: 11,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (kinds != null)
+                    TextButton(
+                      key: const Key('change-kind'),
+                      onPressed: () => setState(() => _picking = !_picking),
+                      child: Text(_picking ? 'Cancel' : 'Change'),
+                    ),
+                ],
               ),
               const SizedBox(height: 6),
-              // Escape leaves the text, which applies it, rather than
-              // reaching the map and giving up on whatever is being drawn.
-              // The keyboard goes back to the map, so that its own keys —
-              // undo among them — work again straight away.
-              CallbackShortcuts(
-                bindings: {
-                  const SingleActivator(LogicalKeyboardKey.escape): _leave,
-                },
-                child: TextField(
-                  key: const Key('tags'),
-                  controller: _text,
-                  focusNode: _focus,
-                  style: text,
-                  minLines: 3,
-                  maxLines: 14,
-                  keyboardType: TextInputType.multiline,
-                  cursorColor: const Color(0xff9ec1ff),
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    hintText: 'key=value',
-                    hintStyle: TextStyle(color: Color(0xff7d848c)),
-                    filled: true,
-                    fillColor: Color(0xff1f2328),
-                    contentPadding: EdgeInsets.all(8),
-                    border: OutlineInputBorder(borderSide: BorderSide.none),
+              if (_picking && presets != null && kinds != null)
+                PresetPicker(
+                  presets: presets,
+                  geometries: {for (final (_, geometry) in kinds) geometry},
+                  current: _shared(kinds),
+                  onChosen: _choose,
+                  onCancelled: () => setState(() => _picking = false),
+                )
+              else
+                // Escape leaves the text, which applies it, rather than
+                // reaching the map and giving up on whatever is being drawn.
+                // The keyboard goes back to the map, so that its own keys —
+                // undo among them — work again straight away.
+                CallbackShortcuts(
+                  bindings: {
+                    const SingleActivator(LogicalKeyboardKey.escape): _leave,
+                  },
+                  child: TextField(
+                    key: const Key('tags'),
+                    controller: _text,
+                    focusNode: _focus,
+                    style: text,
+                    minLines: 3,
+                    maxLines: 14,
+                    keyboardType: TextInputType.multiline,
+                    cursorColor: const Color(0xff9ec1ff),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      hintText: 'key=value',
+                      hintStyle: TextStyle(color: Color(0xff7d848c)),
+                      filled: true,
+                      fillColor: Color(0xff1f2328),
+                      contentPadding: EdgeInsets.all(8),
+                      border: OutlineInputBorder(borderSide: BorderSide.none),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),

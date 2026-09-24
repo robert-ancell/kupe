@@ -59,6 +59,7 @@ Future<void> main(List<String> arguments) async {
   OsmImageryCache? imagery;
   File? place;
   File? indexFile;
+  Directory? presetsDirectory;
   File? accountFile;
   try {
     final directory = await getApplicationCacheDirectory();
@@ -68,6 +69,7 @@ Future<void> main(List<String> arguments) async {
     );
     place = File('${directory.path}/last-place.json');
     indexFile = File('${directory.path}/editor-layer-index.geojson');
+    presetsDirectory = Directory('${directory.path}/presets');
     // Not in the cache: a token is a key to somebody's OpenStreetMap
     // account, and a cache is a thing anything is entitled to empty.
     accountFile = File(
@@ -95,6 +97,19 @@ Future<void> main(List<String> arguments) async {
     );
   }
 
+  // What kinds of thing there are, which is what says a node is a cafe
+  // rather than a node. Half a megabyte off the network the first time and
+  // off the disk after that; until it is in, things go by their ids.
+  final presets = ValueNotifier<OsmPresets?>(null);
+  if (presetsDirectory != null) {
+    unawaited(
+      OsmPresetsFile.read(
+        directory: presetsDirectory,
+        fetch: httpFetch(contact: contact),
+      ).then((read) => presets.value = read),
+    );
+  }
+
   final left = place == null ? null : await LastPlace.read(place);
 
   runApp(
@@ -113,6 +128,7 @@ Future<void> main(List<String> arguments) async {
       imageryCache: imagery,
       imageryIndex: index,
       imageryFetch: imageryFetch,
+      presets: presets,
     ),
   );
 }
@@ -140,6 +156,9 @@ class KupeApp extends StatelessWidget {
   /// How imagery tiles are fetched.
   final OsmFetch? imageryFetch;
 
+  /// What kinds of thing there are on the map, once they are known.
+  final ValueListenable<OsmPresets?>? presets;
+
   /// Creates the app.
   const KupeApp({
     super.key,
@@ -150,6 +169,7 @@ class KupeApp extends StatelessWidget {
     this.imageryCache,
     this.imageryIndex,
     this.imageryFetch,
+    this.presets,
   });
 
   @override
@@ -169,6 +189,7 @@ class KupeApp extends StatelessWidget {
           imageryCache: imageryCache,
           imageryIndex: imageryIndex,
           imageryFetch: imageryFetch,
+          presets: presets,
         ),
       ),
     );
