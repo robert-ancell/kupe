@@ -15,7 +15,7 @@ import 'package:osm/osm.dart';
 /// Empty means no application has been registered for this build — a fork,
 /// or a checkout somebody is running themselves — and the editor asks for
 /// one rather than pretending to be somebody else's.
-const kupeClientId = '';
+const kupeClientId = 'ZGVvl3NuHXWJaWDNro-48My6lkMAWQw9g6oX4oH5Y7c';
 
 /// The port OpenStreetMap sends the browser back to.
 ///
