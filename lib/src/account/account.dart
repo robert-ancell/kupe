@@ -24,6 +24,18 @@ const kupeClientId = 'ZGVvl3NuHXWJaWDNro-48My6lkMAWQw9g6oX4oH5Y7c';
 /// spare.
 const kupeRedirectPort = 8642;
 
+/// What Kupe asks to be allowed to do when somebody signs in.
+///
+/// More than it uses today. A token only ever holds what was asked for when
+/// it was issued, and OpenStreetMap's tokens do not expire, so a permission
+/// asked for later reaches nobody already signed in until they sign in
+/// again. Notes and changeset comments are what an editor grows into, and
+/// asking now is what saves that.
+///
+/// Every one has to be ticked on the application's registration too, or
+/// OpenStreetMap refuses the sign-in outright.
+const kupeScopes = 'read_prefs write_api write_changeset_comments write_notes';
+
 /// What Kupe calls itself in a changeset's `created_by`.
 const kupeGenerator = 'Kupe';
 
@@ -128,6 +140,7 @@ class Account {
   }) async {
     final signIn = OsmSignIn(
       clientId: kupeClientId,
+      scopes: kupeScopes,
       redirectPort: kupeRedirectPort,
     );
     final token = await (through?.call(signIn) ?? signIn.tokenFromBrowser());
