@@ -245,7 +245,11 @@ class MapPainter extends CustomPainter {
       // in its own layer's turn, and looks like the rest of the map.
       for (final way in edited.ways) {
         if (!way.layers.contains(layer)) continue;
-        _drawLine(canvas, size, way.points, paint, mapStyle[layer].width);
+        if (mapStyle[layer].kind == LayerKind.fill) {
+          _drawArea(canvas, size, way.points, paint);
+        } else {
+          _drawLine(canvas, size, way.points, paint, mapStyle[layer].width);
+        }
         calls += 1;
       }
     }
@@ -386,15 +390,22 @@ class MapPainter extends CustomPainter {
   ///
   /// For the few lines that cannot be built once and kept: what is being
   /// pointed at, what is selected, and what is being moved.
-  void _drawLine(
-    Canvas canvas,
-    Size size,
-    List<double> points,
-    Paint paint,
-    double width,
-  ) {
-    if (points.length < 4) return;
+  /// Fills the shape [points] runs around.
+  ///
+  /// A path filled by the canvas rather than triangles built here: this is
+  /// only ever the few areas being changed, and it is drawn a frame at a time
+  /// while a corner is dragged, which is no time to be triangulating.
+  void _drawArea(Canvas canvas, Size size, List<double> points, Paint paint) {
+    if (points.length < 6) return;
+    canvas.drawPath(
+      _pathThrough(points, size)..close(),
+      Paint()
+        ..color = paint.color
+        ..isAntiAlias = paint.isAntiAlias,
+    );
+  }
 
+  Path _pathThrough(List<double> points, Size size) {
     final path = Path();
     for (var i = 0; i + 1 < points.length; i += 2) {
       final at = camera.toScreen(points[i], points[i + 1], size);
@@ -404,9 +415,20 @@ class MapPainter extends CustomPainter {
         path.lineTo(at.dx, at.dy);
       }
     }
+    return path;
+  }
+
+  void _drawLine(
+    Canvas canvas,
+    Size size,
+    List<double> points,
+    Paint paint,
+    double width,
+  ) {
+    if (points.length < 4) return;
 
     canvas.drawPath(
-      path,
+      _pathThrough(points, size),
       paint
         ..style = PaintingStyle.stroke
         ..strokeWidth = width,

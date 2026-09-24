@@ -1,3 +1,5 @@
+import 'package:osm/osm.dart';
+
 import '../render/stroke.dart';
 
 /// Whether a layer covers ground or draws a line along it.
@@ -158,6 +160,18 @@ final _areaEdges = <int, int>{
       if (mapStyle.any((other) => other.id == '${layer.id}-edge'))
         layerIndex(layer.id): layerIndex('${layer.id}-edge'),
 };
+
+/// Every layer [way] is drawn in, in style order: a line's casing and
+/// fill, or an area's fill and the edge around it.
+///
+/// For drawing and picking a single way the way the tiles draw it, so that
+/// one being edited looks the same as it did before it was touched and can
+/// be taken hold of by the same part of it.
+List<int> wayLayersFor(OsmWay way) {
+  if (!way.isClosed || !enclosesArea(way.tags)) return lineLayersFor(way.tags);
+  final fills = fillLayersFor(way.tags);
+  return [...fills, for (final fill in fills) ?areaEdgeLayer(fill)]..sort();
+}
 
 /// The index of the layer with the given id.
 int layerIndex(String id) => mapStyle.indexWhere((layer) => layer.id == id);

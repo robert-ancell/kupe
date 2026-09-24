@@ -68,20 +68,46 @@ void main() {
     expect(_pick(_middle, store), isNull);
   });
 
-  test('picks nothing for a shape rather than a line', () {
-    final nodes = [
-      const OsmNode(id: 1, latitude: _latitude, longitude: _longitude - 0.001),
-      const OsmNode(id: 2, latitude: _latitude, longitude: _longitude + 0.001),
-      OsmNode(
-        id: 3,
-        latitude: _latitude - 0.001,
-        longitude: _longitude + 0.001,
-      ),
-    ];
-    const way = OsmWay(id: 4, nodeIds: [1, 2, 3, 1], tags: {'building': 'yes'});
-    final store = MapStore()
-      ..add(TileId.at(16, _latitude, _longitude), [...nodes, way]);
-    expect(_pick(_middle, store), isNull);
+  group('a building', () {
+    /// A triangular building whose northern edge runs through the middle of
+    /// the view.
+    MapStore building() {
+      final nodes = [
+        const OsmNode(
+          id: 1,
+          latitude: _latitude,
+          longitude: _longitude - 0.001,
+        ),
+        const OsmNode(
+          id: 2,
+          latitude: _latitude,
+          longitude: _longitude + 0.001,
+        ),
+        const OsmNode(
+          id: 3,
+          latitude: _latitude - 0.001,
+          longitude: _longitude + 0.001,
+        ),
+      ];
+      const way = OsmWay(
+        id: 4,
+        nodeIds: [1, 2, 3, 1],
+        tags: {'building': 'yes'},
+      );
+      return MapStore()
+        ..add(TileId.at(16, _latitude, _longitude), [...nodes, way]);
+    }
+
+    test('is picked by its edge', () {
+      expect(_pick(_middle, building())?.way.id, 4);
+    });
+
+    test('is not picked from inside', () {
+      // Well inside, away from every edge: whatever else is in there, a
+      // path across a courtyard say, is what a click there is for.
+      final inside = _onScreen(_latitude - 0.0003, _longitude + 0.0006);
+      expect(_pick(inside, building()), isNull);
+    });
   });
 
   test('picks the nearer of two lines', () {

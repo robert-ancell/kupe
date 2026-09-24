@@ -281,8 +281,14 @@ PickedWay? wayAt(
   var nearestDistance = double.infinity;
 
   for (final way in waysNear(store, edits, _tilesAround(world, reach, zoom))) {
-    if (way.isClosed && enclosesArea(way.tags)) continue;
-    final layers = lineLayersFor(way.tags);
+    // Taken hold of by its lines: a road by the road, an area by the edge
+    // around it. Not by the inside of an area, which is mostly other things
+    // — the paths across a park, the building in the middle of a car park —
+    // and would take every click meant for them.
+    final layers = [
+      for (final layer in wayLayersFor(way))
+        if (mapStyle[layer].kind == LayerKind.line) layer,
+    ];
     // A way the style says nothing about is not on the map to be taken hold
     // of, unless it has just been drawn and has not been said anything about
     // yet.

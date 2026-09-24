@@ -4,8 +4,11 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:kupe/src/data/map_loader.dart';
+import 'package:kupe/src/data/map_store.dart';
 import 'package:kupe/src/edit/edited_geometry.dart';
+import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
+import 'package:kupe/src/style/style.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
 
@@ -181,5 +184,30 @@ void main() {
     loader.editsChanged();
     await _drain();
     expect(loader.requests, asked);
+  });
+
+  test('draws a changed building as a building', () {
+    const corners = [
+      OsmNode(id: 1, latitude: _latitude, longitude: _longitude),
+      OsmNode(id: 2, latitude: _latitude, longitude: _longitude + 0.0002),
+      OsmNode(id: 3, latitude: _latitude - 0.0002, longitude: _longitude),
+    ];
+    const way = OsmWay(id: 4, nodeIds: [1, 2, 3, 1], tags: {'building': 'yes'});
+    final store = MapStore()
+      ..add(TileId.at(16, _latitude, _longitude), [...corners, way]);
+    final edits = OsmEdits()
+      ..moveNode(
+        corners[1],
+        latitude: _latitude + 0.0001,
+        longitude: _longitude + 0.0002,
+      );
+
+    // Its fill and the edge around it, as the tile drew it before it was
+    // touched: not a road, which is what a way with nothing to go on is
+    // drawn as.
+    expect(editedGeometry(store, edits).ways.single.layers, [
+      layerIndex('building'),
+      layerIndex('building-edge'),
+    ]);
   });
 }

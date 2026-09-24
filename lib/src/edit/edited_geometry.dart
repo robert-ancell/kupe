@@ -63,9 +63,7 @@ EditedGeometry editedGeometry(
     final way = edits.changedWay(id) ?? store.ways[id];
     if (way == null) continue;
     if (edits.isGone(OsmElementType.way, id)) continue;
-    final layers = way.isClosed && enclosesArea(way.tags)
-        ? const <int>[]
-        : lineLayersFor(way.tags);
+    final layers = wayLayersFor(way);
     final points = _pointsOf(way.nodeIds, store, edits);
     if (points.length < 4) continue;
     ways.add(
