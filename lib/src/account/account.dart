@@ -134,7 +134,10 @@ class Account {
   /// Asks OpenStreetMap whose token it handed over as well, so the editor
   /// can say who an edit would be made as rather than only that it could be
   /// made.
+  ///
+  /// Completing [cancel] gives up, with [OsmSignInCancelledException].
   Future<Account> signIn({
+    Future<void>? cancel,
     Future<OsmToken> Function(OsmSignIn)? through,
     Future<String> Function(String token)? whoAmI,
   }) async {
@@ -143,7 +146,9 @@ class Account {
       scopes: kupeScopes,
       redirectPort: kupeRedirectPort,
     );
-    final token = await (through?.call(signIn) ?? signIn.tokenFromBrowser());
+    final token =
+        await (through?.call(signIn) ??
+            signIn.tokenFromBrowser(cancel: cancel));
     // Asked of OpenStreetMap only where the token is allowed to ask. A token
     // without it is still worth keeping: the editor can say what it is short
     // of, which is more use than refusing to hold it at all.

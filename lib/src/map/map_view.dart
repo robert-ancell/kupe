@@ -11,7 +11,6 @@ import 'package:flutter/scheduler.dart';
 import 'package:osm/osm.dart';
 
 import '../account/account.dart';
-import '../account/sign_in_dialog.dart';
 import '../account/upload_dialog.dart';
 import '../data/map_loader.dart';
 import '../edit/edited_geometry.dart';
@@ -115,6 +114,11 @@ class MapView extends StatefulWidget {
   /// the API could have used.
   final OsmFetch? imageryFetch;
 
+  /// How to sign in, given the account as it stands and a future that
+  /// completes if it is given up on. Replaced in tests, which have no
+  /// browser.
+  final Future<Account> Function(Account account, Future<void> cancel)? signIn;
+
   /// Creates the map.
   const MapView({
     super.key,
@@ -123,6 +127,7 @@ class MapView extends StatefulWidget {
     this.cache,
     this.place,
     this.account,
+    this.signIn,
     this.imageryIndex,
     this.imageryCache,
     this.imageryFetch,
@@ -173,8 +178,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// and then thought better of is still there next time.
   final _comment = TextEditingController();
 
-  /// The changeset last uploaded, for the line saying it went.
-  int? _sent;
+  /// What to give up signing in with, while a sign-in is waiting on the
+  /// browser.
+  Completer<void>? _signingIn;
+
+  /// A line to say along the bottom: that a changeset went, or why signing
+  /// in did not.
+  String? _notice;
 
   /// What a click does next.
   MapTool _tool = MapTool.browse;
@@ -216,13 +226,49 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     );
   }
 
-  /// Opens the account window, and keeps whatever it came back with.
-  Future<void> _showAccount() async {
-    final account = await showSignInDialog(context, account: _account);
-    if (account == null || !mounted) return;
-    await account.write(widget.account);
-    if (!mounted) return;
+  /// Opens OpenStreetMap in the browser and waits for it to come back,
+  /// and says whether it did.
+  ///
+  /// Straight to the browser, with nothing in between: there is nothing to
+  /// decide before signing in, so a window asking whether to would be a
+  /// click spent on nothing. While it waits the account button says so and
+  /// offers to give up, since the browser may never come back at all.
+  Future<bool> _signIn() async {
+    if (_signingIn != null) return false;
+    final cancel = Completer<void>();
+    setState(() {
+      _signingIn = cancel;
+      _notice = null;
+    });
+    try {
+      final account =
+          await (widget.signIn?.call(_account, cancel.future) ??
+              _account.signIn(cancel: cancel.future));
+      await account.write(widget.account);
+      if (!mounted) return false;
+      setState(() => _account = account);
+      return account.canUpload;
+    } on OsmSignInCancelledException {
+      return false;
+    } on Exception catch (e) {
+      if (mounted) setState(() => _notice = '$e');
+      return false;
+    } finally {
+      if (mounted) setState(() => _signingIn = null);
+    }
+  }
+
+  /// Gives up on the sign-in waiting on the browser.
+  void _cancelSignIn() {
+    final cancel = _signingIn;
+    if (cancel != null && !cancel.isCompleted) cancel.complete();
+  }
+
+  /// Forgets the token, here and on disk.
+  Future<void> _signOut() async {
+    final account = _account.copyWith(signedOut: true);
     setState(() => _account = account);
+    await account.write(widget.account);
   }
 
   /// Shows what would be sent and, if it is agreed to, sends it.
@@ -233,14 +279,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// is a few boxes off the network, and the alternative is an editor whose
   /// next change is made against a version that no longer exists.
   Future<void> _upload() async {
-    final token = _account.token;
     // Not signed in, or signed in with a token that was never granted
-    // permission to change the map. Both are the same thing to whoever is
-    // looking at it — go and sign in — and the window says which.
-    if (token == null || !_account.canUpload) {
-      await _showAccount();
-      return;
-    }
+    // permission to change the map. Either way the answer is to sign in, and
+    // once that has worked the upload carries on from where it was asked
+    // for rather than making somebody press the button a second time.
+    if (!_account.canUpload && !await _signIn()) return;
+    final token = _account.token;
+    if (token == null || !mounted) return;
     final uploader = OsmUploader(token: token, generator: kupeGenerator);
     final changeset = await showUploadDialog(
       context,
@@ -255,7 +300,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       _selected.clear();
       _hovered = null;
       _comment.clear();
-      _sent = changeset;
+      _notice = 'Uploaded as changeset $changeset';
     });
     await _loader.reread();
   }
@@ -1000,8 +1045,11 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                             children: [
                               _AccountBar(
                                 account: _account,
+                                signingIn: _signingIn != null,
+                                onSignIn: _signIn,
+                                onCancel: _cancelSignIn,
+                                onSignOut: _signOut,
                                 changes: OsmUpload.of(_edits).length,
-                                onAccount: _showAccount,
                                 onUpload: _upload,
                               ),
                               if (!_tooFarToEdit) ...[
@@ -1031,15 +1079,16 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                             bottom: 12,
                             child: _Tags(selected: _selected.values.toList()),
                           ),
-                        if (_sent case final changeset?)
+                        if (_notice case final notice?)
                           Positioned(
                             left: 0,
                             right: 0,
                             bottom: 40,
                             child: Center(
-                              child: _Sent(
-                                changeset: changeset,
-                                onDismissed: () => setState(() => _sent = null),
+                              child: _Notice(
+                                text: notice,
+                                onDismissed: () =>
+                                    setState(() => _notice = null),
                               ),
                             ),
                           ),
@@ -1395,13 +1444,19 @@ class _ToolIntent extends Intent {
 class _AccountBar extends StatelessWidget {
   final Account account;
   final int changes;
-  final VoidCallback onAccount;
+  final bool signingIn;
+  final VoidCallback onSignIn;
+  final VoidCallback onCancel;
+  final VoidCallback onSignOut;
   final VoidCallback onUpload;
 
   const _AccountBar({
     required this.account,
     required this.changes,
-    required this.onAccount,
+    required this.signingIn,
+    required this.onSignIn,
+    required this.onCancel,
+    required this.onSignOut,
     required this.onUpload,
   });
 
@@ -1415,56 +1470,116 @@ class _AccountBar extends StatelessWidget {
             icon: Icons.cloud_upload,
             label: 'Upload $changes',
             chosen: true,
-            onPressed: onUpload,
+            onPressed: signingIn ? null : onUpload,
           ),
           const SizedBox(width: 6),
         ],
-        _ToolButton(
-          // A token that cannot change the map is not the same as being
-          // signed in, whatever it says about who it belongs to, so it does
-          // not get the settled icon.
-          icon: account.canUpload
-              ? Icons.person
-              : account.isSignedIn
-              ? Icons.person_off_outlined
-              : Icons.person_outline,
-          label: account.canUpload ? (account.user ?? 'Signed in') : 'Sign in',
-          chosen: false,
-          onPressed: onAccount,
-        ),
+        if (signingIn)
+          // What the editor is waiting on is somewhere else — a browser
+          // window, perhaps behind this one — so it says where, and offers
+          // a way out for when that window has been closed and is never
+          // coming back.
+          _ToolButton(
+            key: const Key('cancel-sign-in'),
+            icon: Icons.close,
+            label: 'Waiting for the browser…',
+            chosen: false,
+            onPressed: onCancel,
+          )
+        else if (account.canUpload)
+          Builder(
+            builder: (context) => _ToolButton(
+              key: const Key('account'),
+              icon: Icons.person,
+              label: account.user ?? 'Signed in',
+              chosen: false,
+              onPressed: () => _offerSignOut(context),
+            ),
+          )
+        else
+          _ToolButton(
+            key: const Key('sign-in'),
+            // A token that cannot change the map is not the same as being
+            // signed in, whatever it says about who it belongs to, so it is
+            // offered as signing in rather than as an account.
+            icon: account.isSignedIn
+                ? Icons.person_off_outlined
+                : Icons.person_outline,
+            label: 'Sign in',
+            chosen: false,
+            onPressed: onSignIn,
+          ),
       ],
     );
   }
+
+  /// A menu under the account button, holding the one thing there is to do
+  /// with an account once it is signed in.
+  Future<void> _offerSignOut(BuildContext context) async {
+    final box = context.findRenderObject()! as RenderBox;
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final at = box.localToGlobal(
+      box.size.bottomLeft(Offset.zero),
+      ancestor: overlay,
+    );
+    final chosen = await showMenu<bool>(
+      context: context,
+      position: RelativeRect.fromRect(
+        at & Size(box.size.width, 0),
+        Offset.zero & overlay.size,
+      ),
+      items: const [
+        PopupMenuItem(
+          key: Key('sign-out'),
+          value: true,
+          child: Text('Sign out'),
+        ),
+      ],
+    );
+    if (chosen == true) onSignOut();
+  }
 }
 
-/// That a changeset went, with a way to go and look at it.
-class _Sent extends StatelessWidget {
-  final int changeset;
+/// A line along the bottom of the map: that a changeset went, or why
+/// signing in did not.
+class _Notice extends StatelessWidget {
+  final String text;
   final VoidCallback onDismissed;
 
-  const _Sent({required this.changeset, required this.onDismissed});
+  const _Notice({required this.text, required this.onDismissed});
 
   @override
   Widget build(BuildContext context) {
     return Material(
       color: const Color(0xee2b3036),
       borderRadius: BorderRadius.circular(4),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SelectableText(
-              'Uploaded as changeset $changeset',
-              style: const TextStyle(fontSize: 12, color: Color(0xffffffff)),
-            ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 16),
-              color: const Color(0xffffffff),
-              onPressed: onDismissed,
-              tooltip: 'Dismiss',
-            ),
-          ],
+      child: ConstrainedBox(
+        // A refusal from OpenStreetMap can be a paragraph, and a paragraph
+        // across the whole width of a desktop screen cannot be read.
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: SelectableText(
+                  text,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xffffffff),
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 16),
+                color: const Color(0xffffffff),
+                onPressed: onDismissed,
+                tooltip: 'Dismiss',
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1512,9 +1627,10 @@ class _ToolButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool chosen;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   const _ToolButton({
+    super.key,
     required this.icon,
     required this.label,
     required this.chosen,

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kupe/src/account/account.dart';
-import 'package:kupe/src/account/sign_in_dialog.dart';
 import 'package:kupe/src/account/upload_dialog.dart';
 import 'package:osm/osm.dart';
 
@@ -76,85 +75,6 @@ void main() {
       expect(out.user, isNull);
       expect(out.scopes, isEmpty);
       expect(out.canUpload, isFalse);
-    });
-  });
-
-  group('signing in', () {
-    testWidgets('offers to sign in when nobody is', (tester) async {
-      await _show(tester, const SignInDialog(account: Account()));
-      expect(find.byKey(const Key('sign-in')), findsOneWidget);
-      expect(find.byKey(const Key('sign-out')), findsNothing);
-    });
-
-    testWidgets('says who is signed in', (tester) async {
-      await _show(
-        tester,
-        const SignInDialog(
-          account: Account(
-            token: 'a-token',
-            user: 'Somebody',
-            scopes: {'write_api'},
-          ),
-        ),
-      );
-      expect(find.textContaining('Somebody'), findsOneWidget);
-      expect(find.byKey(const Key('sign-out')), findsOneWidget);
-      expect(find.byKey(const Key('sign-in')), findsNothing);
-    });
-
-    testWidgets('offers to sign in again for a token that cannot upload', (
-      tester,
-    ) async {
-      await _show(
-        tester,
-        const SignInDialog(
-          account: Account(
-            token: 'a-token',
-            user: 'Somebody',
-            scopes: {'read_prefs'},
-          ),
-        ),
-      );
-      expect(find.textContaining('did not include permission'), findsOneWidget);
-      expect(find.text('Sign in again'), findsOneWidget);
-    });
-
-    testWidgets('comes back with the account it signed in as', (tester) async {
-      Account? came;
-      await _show(
-        tester,
-        Builder(
-          builder: (context) => TextButton(
-            onPressed: () async => came = await showSignInDialog(
-              context,
-              account: const Account(),
-              signIn: (account) async =>
-                  account.copyWith(token: 'a-token', user: 'Somebody'),
-            ),
-            child: const Text('go'),
-          ),
-        ),
-      );
-      await tester.tap(find.text('go'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('sign-in')));
-      await tester.pumpAndSettle();
-      expect(came!.user, 'Somebody');
-    });
-
-    testWidgets('says what went wrong rather than closing', (tester) async {
-      await _show(
-        tester,
-        SignInDialog(
-          account: const Account(),
-          signIn: (_) async =>
-              throw const OsmSignInException('The browser never came back.'),
-        ),
-      );
-      await tester.tap(find.byKey(const Key('sign-in')));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('never came back'), findsOneWidget);
-      expect(find.byKey(const Key('sign-in')), findsOneWidget);
     });
   });
 

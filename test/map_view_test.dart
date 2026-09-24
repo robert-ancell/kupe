@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kupe/src/account/account.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/map/map_view.dart';
 import 'package:kupe/src/map/pick.dart';
@@ -1248,6 +1250,123 @@ void main() {
 
       final after = (_painterIn(tester).highlight as PickedWay?)?.points.length;
       expect(after, isNot(before), reason: 'node ${made.id} is out of it');
+    });
+  });
+
+  group('signing in', () {
+    /// The map, signing in however [signIn] says to.
+    Future<void> open(
+      WidgetTester tester,
+      Future<Account> Function(Account account, Future<void> cancel) signIn,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: _nothing),
+              initialCamera: Camera.at(
+                latitude: -36.85,
+                longitude: 174.76,
+                zoom: 17,
+              ),
+              signIn: signIn,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    const signedIn = Account(
+      token: 'a-token',
+      user: 'Somebody',
+      scopes: {'write_api', 'read_prefs'},
+    );
+
+    testWidgets('goes straight to the browser and says it is waiting', (
+      tester,
+    ) async {
+      final browser = Completer<Account>();
+      var asked = 0;
+      await open(tester, (_, _) {
+        asked++;
+        return browser.future;
+      });
+      await tester.tap(find.byKey(const Key('sign-in')));
+      await tester.pump();
+      expect(asked, 1);
+      expect(find.byType(Dialog), findsNothing);
+      expect(find.text('Waiting for the browser…'), findsOneWidget);
+
+      browser.complete(signedIn);
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Somebody'), findsOneWidget);
+      expect(find.text('Waiting for the browser…'), findsNothing);
+    });
+
+    testWidgets('gives up when cancelled, and says nothing about it', (
+      tester,
+    ) async {
+      var cancelled = false;
+      await open(tester, (_, cancel) async {
+        await cancel;
+        cancelled = true;
+        throw const OsmSignInCancelledException();
+      });
+      await tester.tap(find.byKey(const Key('sign-in')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('cancel-sign-in')));
+      await tester.pump();
+      await tester.pump();
+      expect(cancelled, isTrue);
+      expect(find.byKey(const Key('sign-in')), findsOneWidget);
+      // Whoever cancelled knows they did; a line saying so is noise.
+      expect(find.textContaining('cancelled'), findsNothing);
+    });
+
+    testWidgets('says why when it does not work', (tester) async {
+      await open(
+        tester,
+        (_, _) async =>
+            throw const OsmSignInException('The browser never came back.'),
+      );
+      await tester.tap(find.byKey(const Key('sign-in')));
+      await tester.pump();
+      await tester.pump();
+      expect(find.textContaining('never came back'), findsOneWidget);
+      expect(find.byKey(const Key('sign-in')), findsOneWidget);
+    });
+
+    testWidgets('carries on to the upload once signed in', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await open(tester, (_, _) async => signedIn);
+      // Something to upload: a node put down with the node tool.
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+      await tester.pump();
+      await _click(tester, const Offset(420, 360));
+
+      await tester.tap(find.text('Upload 1'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      // Straight on to what was asked for, rather than back to the map to
+      // press the button a second time.
+      expect(find.byKey(const Key('comment')), findsOneWidget);
+    });
+
+    testWidgets('signs out from the account button', (tester) async {
+      await open(tester, (_, _) async => signedIn);
+      await tester.tap(find.byKey(const Key('sign-in')));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('account')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('sign-out')));
+      await tester.pumpAndSettle();
+      expect(find.text('Somebody'), findsNothing);
+      expect(find.byKey(const Key('sign-in')), findsOneWidget);
     });
   });
 }
