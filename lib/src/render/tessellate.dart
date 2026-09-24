@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:osm/osm.dart';
 
-import '../geometry/tile.dart';
 import '../style/style.dart';
 import 'stroke.dart';
 import 'tile_mesh.dart';
@@ -11,7 +10,7 @@ import 'triangulate.dart';
 /// What was built, and what it cost, for one pass over a dataset.
 class TessellationReport {
   /// The tiles built, by id.
-  final Map<TileId, TileMesh> tiles;
+  final Map<OsmTile, TileMesh> tiles;
 
   /// How many elements were turned into geometry.
   final int drawn;
@@ -73,12 +72,12 @@ class TessellationReport {
 TessellationReport tessellate(
   OsmSubset data, {
   required int zoom,
-  TileId? into,
+  OsmTile? into,
   int Function(int nodeId)? waysThrough,
   bool Function(OsmElement element)? skip,
 }) {
   final through = waysThrough ?? _countWithin(data);
-  final builders = <TileId, _TileBuilder>{};
+  final builders = <OsmTile, _TileBuilder>{};
   var drawn = 0;
   var skipped = 0;
   var incomplete = 0;
@@ -125,9 +124,9 @@ enum _Outcome { drawn, skipped, incomplete }
 _Outcome _way(
   OsmWay way,
   OsmSubset data,
-  Map<TileId, _TileBuilder> builders,
+  Map<OsmTile, _TileBuilder> builders,
   int zoom,
-  TileId? into,
+  OsmTile? into,
   int Function(int nodeId) waysThrough,
 ) {
   final asArea = way.isClosed && enclosesArea(way.tags);
@@ -163,9 +162,9 @@ _Outcome _way(
 _Outcome _relation(
   OsmRelation relation,
   OsmSubset data,
-  Map<TileId, _TileBuilder> builders,
+  Map<OsmTile, _TileBuilder> builders,
   int zoom,
-  TileId? into,
+  OsmTile? into,
 ) {
   if (relation.tags['type'] != 'multipolygon') return _Outcome.skipped;
   final layers = fillLayersFor(relation.tags);
@@ -179,9 +178,9 @@ _Outcome _relation(
 _Outcome _fill(
   OsmArea area,
   List<int> layers,
-  Map<TileId, _TileBuilder> builders,
+  Map<OsmTile, _TileBuilder> builders,
   int zoom,
-  TileId? into,
+  OsmTile? into,
 ) {
   if (area.polygons.isEmpty) return _Outcome.incomplete;
 
@@ -217,12 +216,12 @@ List<double> _ring(List<double> points) {
   return [...points, first, second];
 }
 
-TileId _tileOf(OsmNode node, int zoom) =>
-    TileId.at(zoom, node.latitude, node.longitude);
+OsmTile _tileOf(OsmNode node, int zoom) =>
+    OsmTile.at(zoom, node.latitude, node.longitude);
 
 /// Projects nodes into the tile's own coordinates, where a whole tile is
 /// [tileExtent] across.
-List<double> _project(List<OsmNode> nodes, TileId tile) {
+List<double> _project(List<OsmNode> nodes, OsmTile tile) {
   final scale = tileExtent / tile.size;
   final out = List<double>.filled(nodes.length * 2, 0);
   for (var i = 0; i < nodes.length; i++) {
@@ -251,7 +250,7 @@ int Function(int) _countWithin(OsmSubset data) {
 /// Collects the triangles of one tile, keeping each layer's in its own list
 /// so that the whole layer can go to the GPU in one call.
 class _TileBuilder {
-  final TileId tile;
+  final OsmTile tile;
   final _fills = <int, List<double>>{};
   final _lineAnchors = <int, List<double>>{};
   final _lineOffsets = <int, List<double>>{};

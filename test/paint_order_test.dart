@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/map/pick.dart';
 import 'package:kupe/src/render/map_painter.dart';
@@ -35,7 +34,7 @@ final _camera = Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17);
 /// Through the middle of the view: a tile is only drawn if what it holds is
 /// on screen.
 GpuTileMesh _mesh({double latitude = -36.85, double longitude = 174.76}) {
-  final tile = TileId.at(16, latitude, longitude);
+  final tile = OsmTile.at(16, latitude, longitude);
   final x = (Mercator.x(longitude) - tile.worldX) * tileExtent / tile.size;
   final y = (Mercator.y(latitude) - tile.worldY) * tileExtent / tile.size;
   return GpuTileMesh.of(
@@ -174,8 +173,8 @@ void main() {
   test('draws a tile off screen whose road runs onto it', () {
     // A way goes in the tile its first node is in and is not cut at the
     // edge, so a road starting two tiles west still reaches the middle.
-    final here = TileId.at(16, -36.85, 174.76);
-    final west = TileId(16, here.x - 2, here.y);
+    final here = OsmTile.at(16, -36.85, 174.76);
+    final west = OsmTile(16, here.x - 2, here.y);
     final x = (Mercator.x(174.76) - west.worldX) * tileExtent / west.size;
     final y = (Mercator.y(-36.85) - west.worldY) * tileExtent / west.size;
     final mesh = GpuTileMesh.of(

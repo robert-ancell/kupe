@@ -5,7 +5,6 @@ import 'dart:ui';
 
 import 'package:osm/osm.dart';
 
-import '../geometry/tile.dart';
 import '../map/camera.dart';
 
 /// The fewest decoded tiles held, whatever the size of the view.
@@ -49,10 +48,10 @@ const imageryFinerLevels = 2;
 /// one holding it, whose matching part stands in until the right one comes.
 class ImageryPiece<T extends Object> {
   /// Where on the map this is drawn.
-  final TileId tile;
+  final OsmTile tile;
 
   /// Which tile [image] is of.
-  final TileId from;
+  final OsmTile from;
 
   /// The picture.
   final T image;
@@ -84,12 +83,12 @@ class ImageryLayer<T extends Object> {
   final int inFlight;
 
   // Oldest looked at first, which makes the first one the one to drop.
-  final _images = <TileId, T>{};
-  final _missing = <TileId>{};
-  var _wanted = <TileId>{};
-  var _drawn = <TileId>{};
-  final _reading = <TileId, Completer<void>>{};
-  var _queue = <TileId>[];
+  final _images = <OsmTile, T>{};
+  final _missing = <OsmTile>{};
+  var _wanted = <OsmTile>{};
+  var _drawn = <OsmTile>{};
+  final _reading = <OsmTile, Completer<void>>{};
+  var _queue = <OsmTile>[];
 
   /// Creates a layer.
   ImageryLayer({
@@ -185,7 +184,7 @@ class ImageryLayer<T extends Object> {
   }
 
   /// Adds the tile itself if it is held, or the closest coarser one that is.
-  bool _coarserFor(List<ImageryPiece<T>> pieces, TileId tile) {
+  bool _coarserFor(List<ImageryPiece<T>> pieces, OsmTile tile) {
     var from = tile;
     for (var level = 0; level <= imageryFallbackLevels; level++) {
       final image = _touch(from);
@@ -200,7 +199,7 @@ class ImageryLayer<T extends Object> {
   }
 
   /// Adds whichever pieces of [tile] are held, each drawn in its own place.
-  void _finerFor(List<ImageryPiece<T>> pieces, TileId tile, int levels) {
+  void _finerFor(List<ImageryPiece<T>> pieces, OsmTile tile, int levels) {
     if (levels == 0) return;
     for (final child in tile.children) {
       final image = _touch(child);
@@ -236,13 +235,13 @@ class ImageryLayer<T extends Object> {
   }
 
   /// The image held for [tile], marking it as the one looked at last.
-  T? _touch(TileId tile) {
+  T? _touch(OsmTile tile) {
     final image = _images.remove(tile);
     if (image != null) _images[tile] = image;
     return image;
   }
 
-  double _fromCentre(TileId tile, Offset centre) {
+  double _fromCentre(OsmTile tile, Offset centre) {
     final dx = tile.worldX + tile.size / 2 - centre.dx;
     final dy = tile.worldY + tile.size / 2 - centre.dy;
     return dx * dx + dy * dy;
@@ -257,12 +256,12 @@ class ImageryLayer<T extends Object> {
     }
   }
 
-  void _abandon(TileId tile) {
+  void _abandon(OsmTile tile) {
     final giveUp = _reading.remove(tile);
     if (giveUp != null && !giveUp.isCompleted) giveUp.complete();
   }
 
-  Future<void> _load(TileId tile, Future<void> abandon) async {
+  Future<void> _load(OsmTile tile, Future<void> abandon) async {
     try {
       final body = await tiles.tile(
         tile,
@@ -291,7 +290,7 @@ class ImageryLayer<T extends Object> {
     }
   }
 
-  Future<void> _store(TileId tile, Uint8List bytes) async {
+  Future<void> _store(OsmTile tile, Uint8List bytes) async {
     final image = await decode(bytes);
     final replaced = _images.remove(tile);
     if (replaced != null) release(replaced);

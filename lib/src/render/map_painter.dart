@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
+import 'package:osm/osm.dart';
 
-import '../geometry/tile.dart';
 import '../edit/edited_geometry.dart';
 import '../imagery/imagery_layer.dart';
 import '../map/pick.dart';
@@ -49,7 +49,7 @@ class GpuTileMesh {
   ]);
 
   /// Which tile this covers.
-  TileId get id => source.id;
+  OsmTile get id => source.id;
 
   /// Room to work out line positions in, shared by every tile since only one
   /// is ever being uploaded at a time. The engine copies what it is given.

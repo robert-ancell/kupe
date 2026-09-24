@@ -1,7 +1,7 @@
 import 'dart:ui';
 
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
+import 'package:osm/osm.dart';
 import 'package:test/test.dart';
 
 const _size = Size(800, 600);
@@ -64,12 +64,12 @@ void main() {
     // A tile is 256 pixels at zoom 14, so an 800 by 600 view spans four
     // columns and three rows at most.
     expect(tiles.length, lessThanOrEqualTo(4 * 4));
-    expect(tiles, contains(TileId.of(14, 0.5, 0.5)));
+    expect(tiles, contains(OsmTile.of(14, 0.5, 0.5)));
   });
 
   test('asks for one tile when the whole world is one tile', () {
     const camera = Camera(x: 0.5, y: 0.5, zoom: 0);
-    expect(camera.tilesFor(const Size(256, 256), 0), [const TileId(0, 0, 0)]);
+    expect(camera.tilesFor(const Size(256, 256), 0), [const OsmTile(0, 0, 0)]);
   });
 
   test('round trips a place on the earth', () {

@@ -1,8 +1,17 @@
 import 'dart:typed_data';
 import 'dart:ui';
 
-import '../geometry/tile.dart';
+import 'package:osm/osm.dart';
+
 import 'stroke.dart';
+
+/// The side of a tile in the local coordinates geometry is stored in.
+///
+/// Positions are held relative to their tile and as 32 bit floats, which only
+/// carry about seven digits. Spread over the whole world that would land
+/// vertices metres from where they belong; spread over one tile it is well
+/// under a millimetre. The value matches the extent vector tiles use.
+const tileExtent = 4096.0;
 
 /// The triangles of one filled layer of one tile.
 class LayerMesh {
@@ -44,7 +53,7 @@ class LineLayerMesh {
 /// one draw call per layer present, whatever the tile holds.
 class TileMesh {
   /// Which tile this covers.
-  final TileId id;
+  final OsmTile id;
 
   /// The filled layers, in style order.
   ///

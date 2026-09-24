@@ -16,7 +16,6 @@ import '../edit/edited_geometry.dart';
 import '../edit/insert.dart';
 import '../edit/ways.dart';
 import '../imagery/imagery_layer.dart';
-import '../geometry/tile.dart';
 import '../render/map_painter.dart';
 import '../render/node_sprite.dart';
 import 'camera.dart';
@@ -154,7 +153,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   );
   OsmImagery? _source;
   ImageryLayer<ui.Image>? _imagery;
-  final _uploaded = <TileId, GpuTileMesh>{};
+  final _uploaded = <OsmTile, GpuTileMesh>{};
 
   /// What the points a line can be taken hold of by are drawn with, made for
   /// the screen's density once it is known.

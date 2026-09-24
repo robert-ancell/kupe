@@ -1,5 +1,4 @@
 import 'package:kupe/src/data/map_store.dart';
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
 
@@ -17,8 +16,8 @@ OsmWay _way(int id, List<int> nodes, {int? version}) => OsmWay(
   info: version == null ? null : OsmInfo(version: version),
 );
 
-const _a = TileId(16, 1, 1);
-const _b = TileId(16, 2, 1);
+const _a = OsmTile(16, 1, 1);
+const _b = OsmTile(16, 2, 1);
 
 void main() {
   test('holds what it is given', () {

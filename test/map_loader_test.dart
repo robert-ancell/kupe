@@ -5,7 +5,6 @@ import 'dart:ui';
 
 import 'package:kupe/src/data/last_place.dart';
 import 'package:kupe/src/data/map_loader.dart';
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
@@ -159,7 +158,7 @@ void main() {
   });
 
   test('splits a box the API says holds too much', () async {
-    final whole = const TileId(loadZoom, 0, 0).bounds;
+    final whole = const OsmTile(loadZoom, 0, 0).bounds;
     final server = _Api(
       refuseWiderThan: (whole.maxLongitude - whole.minLongitude) * 0.75,
     );

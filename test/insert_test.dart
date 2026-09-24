@@ -1,12 +1,11 @@
 import 'package:kupe/src/data/map_store.dart';
 import 'package:kupe/src/edit/insert.dart';
 import 'package:kupe/src/edit/ways.dart';
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
 
 const _latitude = -36.85;
-const _tile = TileId(16, 64583, 39992);
+const _tile = OsmTile(16, 64583, 39992);
 
 /// Two nodes a little apart, and whatever ways are asked for through them.
 MapStore _storeWith(List<OsmWay> ways, {List<OsmNode> extra = const []}) {

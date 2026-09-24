@@ -3,7 +3,8 @@ import 'dart:ui';
 
 import 'package:osm/osm.dart';
 
-import '../geometry/tile.dart';
+/// How large a tile is on screen at its own zoom level.
+const tilePixels = 256.0;
 
 /// Where the map is being looked at from.
 ///
@@ -75,7 +76,7 @@ class Camera {
   ///
   /// [margin] adds rings of tiles beyond the edges, for asking for what is
   /// about to be scrolled into view rather than once it already has been.
-  List<TileId> tilesFor(Size size, int tileZoom, {int margin = 0}) {
+  List<OsmTile> tilesFor(Size size, int tileZoom, {int margin = 0}) {
     final bounds = worldBounds(size);
     final across = 1 << tileZoom;
     final left = ((bounds.left * across).floor() - margin).clamp(0, across - 1);
@@ -84,7 +85,7 @@ class Camera {
     final bottom = ((bounds.bottom * across).ceil() + margin).clamp(0, across);
     return [
       for (var ty = top; ty < bottom; ty++)
-        for (var tx = left; tx < right; tx++) TileId(tileZoom, tx, ty),
+        for (var tx = left; tx < right; tx++) OsmTile(tileZoom, tx, ty),
     ];
   }
 
@@ -114,7 +115,7 @@ class Camera {
   static const minZoom = 0.0;
 
   /// The closest the map zooms in, past which there is nothing more to see.
-  static const maxZoom = maximumZoom;
+  static const maxZoom = 22.0;
 
   @override
   String toString() =>

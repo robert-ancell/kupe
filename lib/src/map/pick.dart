@@ -4,7 +4,6 @@ import 'dart:ui';
 import 'package:osm/osm.dart';
 
 import '../data/map_store.dart';
-import '../geometry/tile.dart';
 import '../style/style.dart';
 import 'camera.dart';
 
@@ -144,7 +143,7 @@ bool isNodeSelectable(
 /// that has been made since. Something just made is in no box: it exists
 /// only among the changes, and not being able to take hold of what has just
 /// been put down is no use at all.
-List<OsmWay> waysNear(MapStore store, OsmEdits? edits, List<TileId> tiles) {
+List<OsmWay> waysNear(MapStore store, OsmEdits? edits, List<OsmTile> tiles) {
   final found = <OsmWay>[];
   final seen = <int>{};
   for (final tile in tiles) {
@@ -319,8 +318,8 @@ PickedWay? wayAt(
 /// The tile the pointer is on and the ring around it. An element goes in the
 /// tile holding its first node and is not cut at the edge, so a way running
 /// out of its tile is still found from the one the pointer is over.
-List<TileId> _tilesAround(Offset world, double reach, int zoom) {
-  final middle = TileId.of(zoom, world.dx, world.dy);
+List<OsmTile> _tilesAround(Offset world, double reach, int zoom) {
+  final middle = OsmTile.of(zoom, world.dx, world.dy);
   final across = 1 << zoom;
   return [
     for (var dy = -1; dy <= 1; dy++)
@@ -329,7 +328,7 @@ List<TileId> _tilesAround(Offset world, double reach, int zoom) {
             middle.x + dx < across &&
             middle.y + dy >= 0 &&
             middle.y + dy < across)
-          TileId(zoom, middle.x + dx, middle.y + dy),
+          OsmTile(zoom, middle.x + dx, middle.y + dy),
   ];
 }
 

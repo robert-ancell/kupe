@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/imagery/imagery_layer.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:osm/osm.dart';
@@ -129,7 +128,7 @@ void main() {
     final camera = _at(17);
     layer.look(camera, _size);
     await _drain();
-    final middle = TileId.of(17, camera.x, camera.y);
+    final middle = OsmTile.of(17, camera.x, camera.y);
     expect(server.asked.single, '/17/${middle.x}/${middle.y}.webp');
   });
 

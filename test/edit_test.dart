@@ -6,7 +6,6 @@ import 'dart:ui';
 import 'package:kupe/src/data/map_loader.dart';
 import 'package:kupe/src/data/map_store.dart';
 import 'package:kupe/src/edit/edited_geometry.dart';
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/style/style.dart';
 import 'package:osm/osm.dart';
@@ -194,7 +193,7 @@ void main() {
     ];
     const way = OsmWay(id: 4, nodeIds: [1, 2, 3, 1], tags: {'building': 'yes'});
     final store = MapStore()
-      ..add(TileId.at(16, _latitude, _longitude), [...corners, way]);
+      ..add(OsmTile.at(16, _latitude, _longitude), [...corners, way]);
     final edits = OsmEdits()
       ..moveNode(
         corners[1],

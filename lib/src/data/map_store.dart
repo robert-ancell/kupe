@@ -1,7 +1,5 @@
 import 'package:osm/osm.dart';
 
-import '../geometry/tile.dart';
-
 /// Everything read from OpenStreetMap so far, stitched into one dataset.
 ///
 /// The API is asked for one box at a time and its answers overlap: a way
@@ -14,8 +12,8 @@ class MapStore {
   final _nodes = <int, OsmNode>{};
   final _ways = <int, OsmWay>{};
   final _relations = <int, OsmRelation>{};
-  final _drawn = <(OsmElementType, int), TileId>{};
-  final _byTile = <TileId, List<OsmElement>>{};
+  final _drawn = <(OsmElementType, int), OsmTile>{};
+  final _byTile = <OsmTile, List<OsmElement>>{};
   final _nodeWays = <int, List<int>>{};
   final _nodeUses = <int, int>{};
   final _nodeEnds = <int, int>{};
@@ -42,7 +40,7 @@ class MapStore {
   /// Which box drew what is remembered, so that reading a box again can take
   /// back what it drew before. Without that a deleted element would stay on
   /// the map for ever: an answer says what is there, never what has gone.
-  List<OsmElement> add(TileId tile, Iterable<OsmElement> elements) {
+  List<OsmElement> add(OsmTile tile, Iterable<OsmElement> elements) {
     for (final element in elements) {
       switch (element) {
         case OsmNode():
@@ -68,7 +66,7 @@ class MapStore {
 
   /// What [tile] drew, which is what to look through to say what is under a
   /// point on it.
-  List<OsmElement> drawnIn(TileId tile) => _byTile[tile] ?? const [];
+  List<OsmElement> drawnIn(OsmTile tile) => _byTile[tile] ?? const [];
 
   /// The ways held that run through the node with [id].
   ///
@@ -117,7 +115,7 @@ class MapStore {
   /// deleted since would otherwise stay on the map for ever. Elements another
   /// box drew are left alone, even where this one also held them: they are
   /// that box's to take back.
-  void release(TileId tile) {
+  void release(OsmTile tile) {
     _byTile.remove(tile);
     final letting = <(OsmElementType, int)>[];
     for (final entry in _drawn.entries) {

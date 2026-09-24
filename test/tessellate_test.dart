@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/render/tessellate.dart';
 import 'package:kupe/src/render/tile_mesh.dart';
 import 'package:kupe/src/style/style.dart';

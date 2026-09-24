@@ -4,7 +4,6 @@ import 'dart:ui';
 
 import 'package:osm/osm.dart';
 
-import '../geometry/tile.dart';
 import '../map/camera.dart';
 import '../render/tessellate.dart';
 import '../render/tile_mesh.dart';
@@ -91,9 +90,9 @@ class MapLoader {
   /// Called whenever there is something new to draw.
   final void Function() onChanged;
 
-  final _built = <TileId, TileMesh>{};
-  final _asked = <TileId>{};
-  var _queue = <TileId>[];
+  final _built = <OsmTile, TileMesh>{};
+  final _asked = <OsmTile>{};
+  var _queue = <OsmTile>[];
   var _running = 0;
   Camera? _camera;
   Size _size = Size.zero;
@@ -113,7 +112,7 @@ class MapLoader {
 
   var _spent = 0;
   Timer? _resume;
-  final _reading = <TileId, Completer<void>>{};
+  final _reading = <OsmTile, Completer<void>>{};
 
   /// Creates a loader.
   MapLoader({
@@ -177,7 +176,7 @@ class MapLoader {
   int get reading => _reading.length;
 
   /// Gives up on a box that is still being read.
-  void _abandon(TileId tile) {
+  void _abandon(OsmTile tile) {
     final giveUp = _reading.remove(tile);
     if (giveUp != null && !giveUp.isCompleted) giveUp.complete();
   }
@@ -252,7 +251,7 @@ class MapLoader {
   ///
   /// A file that will not read is dropped and the box asked for again, since
   /// the only thing it cost was the reading.
-  Future<void> _fromCache(TileId tile) async {
+  Future<void> _fromCache(OsmTile tile) async {
     final elements = await cache!.read(tile);
     if (elements == null) {
       _asked.remove(tile);
@@ -340,14 +339,14 @@ class MapLoader {
   /// What it drew is taken back first. An answer says what is there and never
   /// what has gone, so an element deleted since would otherwise stay on the
   /// map for ever.
-  Future<void> _invalidate(TileId tile) async {
+  Future<void> _invalidate(OsmTile tile) async {
     store.release(tile);
     _built.remove(tile);
     _asked.remove(tile);
     await cache?.forget(tile);
   }
 
-  bool _isVisible(TileId tile, Camera camera) {
+  bool _isVisible(OsmTile tile, Camera camera) {
     if (_size.isEmpty) return false;
     final view = camera.worldBounds(_size);
     return tile.worldX < view.right &&
@@ -357,11 +356,11 @@ class MapLoader {
   }
 
   /// Whether a tile's ground has already been asked for.
-  bool _covered(TileId tile) => _asked.contains(tile);
+  bool _covered(OsmTile tile) => _asked.contains(tile);
 
   /// How far a tile's middle is from the middle of the view, so that what is
   /// being looked at arrives before what is at the edge.
-  double _distance(TileId tile, Camera camera, Size size, Offset centre) {
+  double _distance(OsmTile tile, Camera camera, Size size, Offset centre) {
     final middle = camera.toScreen(
       tile.worldX + tile.size / 2,
       tile.worldY + tile.size / 2,
@@ -390,7 +389,7 @@ class MapLoader {
     }
   }
 
-  Future<void> _load(TileId tile, {int split = 0}) async {
+  Future<void> _load(OsmTile tile, {int split = 0}) async {
     final giveUp = Completer<void>();
     _reading[tile] = giveUp;
     try {
@@ -449,7 +448,7 @@ class MapLoader {
   /// Written to disk but not drawn: the map has moved off it, and it is taken
   /// off the list of boxes already asked for so that coming back to it reads
   /// it from disk rather than from the API.
-  Future<void> _keep(TileId tile, List<OsmElement> elements) async {
+  Future<void> _keep(OsmTile tile, List<OsmElement> elements) async {
     await cache?.write(tile, elements);
     _asked.remove(tile);
     onChanged();
@@ -461,7 +460,7 @@ class MapLoader {
   /// for ever, so the queue is dropped rather than the loader. [tile] is put
   /// back so that it is asked for again rather than left as a hole: a box
   /// that was asked for and never answered has not been read.
-  void _pause(String why, TileId tile) {
+  void _pause(String why, OsmTile tile) {
     _asked.remove(tile);
     stopped = why;
     _queue = [];
@@ -476,7 +475,7 @@ class MapLoader {
     });
   }
 
-  void _draw(TileId tile, List<OsmElement> elements) {
+  void _draw(OsmTile tile, List<OsmElement> elements) {
     // Everything is held together, so a way along the edge of this tile that
     // reaches into the next one still has its nodes. Only what no earlier
     // tile already drew is built, which is what keeps the seams from being

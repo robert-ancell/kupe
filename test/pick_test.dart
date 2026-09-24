@@ -1,7 +1,6 @@
 import 'dart:ui';
 
 import 'package:kupe/src/data/map_store.dart';
-import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/map/pick.dart';
 import 'package:osm/osm.dart';
@@ -29,7 +28,7 @@ MapStore _storeWith(
   ];
   final way = OsmWay(id: id + 2, nodeIds: [id, id + 1], tags: tags);
   final store = MapStore();
-  store.add(TileId.at(16, latitude, _longitude), [...nodes, way]);
+  store.add(OsmTile.at(16, latitude, _longitude), [...nodes, way]);
   return store;
 }
 
@@ -95,7 +94,7 @@ void main() {
         tags: {'building': 'yes'},
       );
       return MapStore()
-        ..add(TileId.at(16, _latitude, _longitude), [...nodes, way]);
+        ..add(OsmTile.at(16, _latitude, _longitude), [...nodes, way]);
     }
 
     test('is picked by its edge', () {
@@ -113,7 +112,7 @@ void main() {
   test('picks the nearer of two lines', () {
     final store = _storeWith(const {'highway': 'residential'});
     // A footpath a little to the south.
-    store.add(TileId.at(16, _latitude, _longitude), [
+    store.add(OsmTile.at(16, _latitude, _longitude), [
       const OsmNode(
         id: 20,
         latitude: _latitude - 0.0004,
@@ -132,7 +131,7 @@ void main() {
 
   test('picks nothing when a way is missing a node', () {
     final store = MapStore()
-      ..add(TileId.at(16, _latitude, _longitude), [
+      ..add(OsmTile.at(16, _latitude, _longitude), [
         const OsmWay(id: 4, nodeIds: [1, 2], tags: {'highway': 'residential'}),
       ]);
     expect(_pick(_middle, store), isNull);
@@ -146,8 +145,10 @@ void main() {
     // A way drawn into the tile next door is still under the pointer.
     final store = _storeWith(const {'highway': 'residential'});
     final elsewhere = MapStore();
-    for (final element in store.drawnIn(TileId.at(16, _latitude, _longitude))) {
-      elsewhere.add(const TileId(16, 0, 0), [element]);
+    for (final element in store.drawnIn(
+      OsmTile.at(16, _latitude, _longitude),
+    )) {
+      elsewhere.add(const OsmTile(16, 0, 0), [element]);
     }
     expect(_pick(_middle, elsewhere), isNull);
   });
@@ -161,7 +162,7 @@ Offset _onScreen(double latitude, double longitude) =>
 /// second road crossing it at the given node along the way.
 MapStore _road({int count = 5, int? crossingAt}) {
   final store = MapStore();
-  final tile = TileId.at(16, _latitude, _longitude);
+  final tile = OsmTile.at(16, _latitude, _longitude);
   final nodes = <OsmElement>[];
   for (var i = 0; i < count; i++) {
     nodes.add(
