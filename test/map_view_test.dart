@@ -217,6 +217,10 @@ Future<void> _open(WidgetTester tester, {double zoom = 17}) async {
   await _settle(tester);
 }
 
+/// The tags of what is selected, as the text box shows them.
+String _tagText(WidgetTester tester) =>
+    tester.widget<TextField>(find.byKey(const Key('tags'))).controller!.text;
+
 /// What the map says it is showing, from the readout.
 String _cameraLine(WidgetTester tester) => tester
     .widgetList<Text>(find.byType(Text))
@@ -450,8 +454,7 @@ void main() {
     testWidgets('shows what the line is tagged with', (tester) async {
       await openOver(tester);
       await _click(tester, const Offset(500, 400));
-      expect(find.text('highway = residential'), findsOneWidget);
-      expect(find.text('name = First Road'), findsOneWidget);
+      expect(_tagText(tester), 'highway=residential\nname=First Road');
     });
 
     testWidgets('selects one line at a time without shift', (tester) async {
@@ -459,7 +462,7 @@ void main() {
       await _click(tester, const Offset(500, 400));
       await _click(tester, other);
       expect(_painterIn(tester).selection.length, 1);
-      expect(find.text('name = Second Road'), findsOneWidget);
+      expect(_tagText(tester), contains('name=Second Road'));
     });
 
     testWidgets('adds to the selection with shift', (tester) async {
@@ -470,13 +473,14 @@ void main() {
       expect(find.text('2 selected'), findsOneWidget);
     });
 
-    testWidgets('shows only what the selection shares', (tester) async {
+    testWidgets('shows what the selection disagrees on as a star', (
+      tester,
+    ) async {
       await openOver(tester);
       await _click(tester, const Offset(500, 400));
       await shift(tester, () => tester.tapAt(other));
       // Both are residential roads; only one of them is First Road.
-      expect(find.text('highway = residential'), findsOneWidget);
-      expect(find.text('name = First Road'), findsNothing);
+      expect(_tagText(tester), 'highway=residential\nname=*');
     });
 
     testWidgets('takes out of the selection with shift', (tester) async {
@@ -487,7 +491,7 @@ void main() {
 
       await shift(tester, () => tester.tapAt(other));
       expect(_painterIn(tester).selection.length, 1);
-      expect(find.text('name = First Road'), findsOneWidget);
+      expect(_tagText(tester), contains('name=First Road'));
     });
 
     testWidgets('clears the selection on clicking nothing', (tester) async {
@@ -1250,6 +1254,185 @@ void main() {
 
       final after = (_painterIn(tester).highlight as PickedWay?)?.points.length;
       expect(after, isNot(before), reason: 'node ${made.id} is out of it');
+    });
+  });
+
+  group('editing tags', () {
+    Future<void> openOver(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MapView(
+              api: OsmApi(fetch: _twoRoads),
+              initialCamera: Camera.at(
+                latitude: _roadLatitude,
+                longitude: 174.76,
+                zoom: 18,
+              ),
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+    }
+
+    const first = Offset(500, 400);
+    const second = Offset(500, 490);
+    const nothing = Offset(500, 150);
+
+    Future<void> selectBoth(WidgetTester tester) async {
+      await _click(tester, first);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.tapAt(second);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+      expect(_painterIn(tester).selection, hasLength(2));
+    }
+
+    /// The tags of each road, read back by selecting it on its own.
+    Future<List<String>> eachRoad(WidgetTester tester) async {
+      final out = <String>[];
+      for (final at in [first, second]) {
+        await _click(tester, at);
+        out.add(_tagText(tester));
+      }
+      return out;
+    }
+
+    Future<void> type(WidgetTester tester, String text) async {
+      await tester.enterText(find.byKey(const Key('tags')), text);
+      await tester.pump();
+    }
+
+    testWidgets('applies an edit when the map is clicked', (tester) async {
+      await openOver(tester);
+      await _click(tester, first);
+      await type(tester, 'highway=service\nname=First Road');
+      // Clicking away clears the selection, and the edit has to have been
+      // applied to what it was made to before that.
+      await _click(tester, nothing);
+      expect(_painterIn(tester).selection, isEmpty);
+      expect(
+        (await eachRoad(tester)).first,
+        'highway=service\nname=First Road',
+      );
+    });
+
+    testWidgets('applies an edit when zooming out takes the selection', (
+      tester,
+    ) async {
+      // The wheel moves the map without taking the keyboard from the text,
+      // so the text is never left; the editor is simply taken away.
+      await openOver(tester);
+      await _click(tester, first);
+      await type(tester, 'highway=service\nname=First Road');
+      final mouse = TestPointer(1, PointerDeviceKind.mouse);
+      await tester.sendEventToBinding(mouse.hover(nothing));
+      for (
+        var i = 0;
+        i < 20 && find.text('Zoom in to edit').evaluate().isEmpty;
+        i++
+      ) {
+        await tester.sendEventToBinding(mouse.scroll(const Offset(0, 400)));
+        await tester.pump();
+      }
+      expect(find.byKey(const Key('tags')), findsNothing);
+      await tester.pump();
+      expect(find.textContaining('Upload 1'), findsOneWidget);
+    });
+
+    testWidgets('applies an edit when escape leaves it', (tester) async {
+      await openOver(tester);
+      await _click(tester, first);
+      await type(tester, 'highway=residential\nname=First Road\nlit=yes');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(_painterIn(tester).selection.single.tags['lit'], 'yes');
+      // Still selected: escape left the text, not the selection.
+      expect(_painterIn(tester).selection, hasLength(1));
+    });
+
+    testWidgets('adds a tag to everything selected and keeps what differs', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await selectBoth(tester);
+      await type(tester, 'highway=residential\nname=*\nlit=yes');
+      await _click(tester, nothing);
+      expect(await eachRoad(tester), [
+        'highway=residential\nlit=yes\nname=First Road',
+        'highway=residential\nlit=yes\nname=Second Road',
+      ]);
+    });
+
+    testWidgets('renames a key on everything, keeping each value', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await selectBoth(tester);
+      await type(tester, 'highway=residential\nold_name=*');
+      await _click(tester, nothing);
+      expect(await eachRoad(tester), [
+        'highway=residential\nold_name=First Road',
+        'highway=residential\nold_name=Second Road',
+      ]);
+    });
+
+    testWidgets('takes a tag off everything', (tester) async {
+      await openOver(tester);
+      await selectBoth(tester);
+      await type(tester, 'highway=residential');
+      await _click(tester, nothing);
+      expect(await eachRoad(tester), [
+        'highway=residential',
+        'highway=residential',
+      ]);
+    });
+
+    testWidgets('undoes one edit of several elements at once', (tester) async {
+      await openOver(tester);
+      await selectBoth(tester);
+      await type(tester, 'highway=service\nname=*');
+      await _click(tester, nothing);
+      await _undo(tester);
+      expect(await eachRoad(tester), [
+        'highway=residential\nname=First Road',
+        'highway=residential\nname=Second Road',
+      ]);
+    });
+
+    testWidgets('shows the tags as they are after an undo', (tester) async {
+      await openOver(tester);
+      await _click(tester, first);
+      await type(tester, 'highway=service\nname=First Road');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await _undo(tester);
+      expect(_tagText(tester), 'highway=residential\nname=First Road');
+    });
+
+    testWidgets('keeps the keys of the map out of the text', (tester) async {
+      await openOver(tester);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: nothing);
+
+      await _click(tester, first);
+      await tester.tap(find.byKey(const Key('tags')));
+      await tester.pump();
+      // A 1 is text here, not the node tool, and backspace is text too.
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+      expect(_painterIn(tester).selection, hasLength(1));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await mouse.moveTo(nothing + const Offset(10, 0));
+      await tester.pump();
+      expect(_painterIn(tester).ghostNode, isNull, reason: 'no tool taken up');
     });
   });
 

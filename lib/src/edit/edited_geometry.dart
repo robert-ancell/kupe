@@ -56,7 +56,7 @@ EditedGeometry editedGeometry(
     // Every way that has been made or put through other nodes, and every way
     // running through a node that has moved.
     ...edits.changedWays.keys,
-    for (final id in edits.movedNodes.keys) ...store.waysUsing(id),
+    for (final id in edits.changedNodes.keys) ...store.waysUsing(id),
   };
 
   for (final id in wanted) {
@@ -88,7 +88,7 @@ EditedGeometry editedGeometry(
   return EditedGeometry(
     ways: ways,
     nodes: [
-      for (final node in edits.movedNodes.values)
+      for (final node in edits.changedNodes.values)
         if (!edits.isGone(OsmElementType.node, node.id))
           (Mercator.x(node.longitude), Mercator.y(node.latitude)),
     ],
@@ -101,7 +101,7 @@ List<double> _pointsOf(List<int> ids, MapStore store, OsmEdits edits) {
   final points = <double>[];
   for (final id in ids) {
     if (edits.isGone(OsmElementType.node, id)) continue;
-    final node = edits.movedNode(id) ?? store.nodes[id];
+    final node = edits.changedNode(id) ?? store.nodes[id];
     if (node == null) continue;
     points.add(Mercator.x(node.longitude));
     points.add(Mercator.y(node.latitude));

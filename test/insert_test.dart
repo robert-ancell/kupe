@@ -155,7 +155,7 @@ void main() {
     }
     expect(edits.changedWay(10), isNull);
     expect(edits.changedWay(11), isNull);
-    expect(edits.movedNode(made.id), isNull);
+    expect(edits.changedNode(made.id), isNull);
   });
 
   test('puts nothing anywhere for a line with no length', () {

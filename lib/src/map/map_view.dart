@@ -21,6 +21,7 @@ import '../render/node_sprite.dart';
 import 'camera.dart';
 import 'frame_stats.dart';
 import 'pick.dart';
+import 'tag_editor.dart';
 
 /// How long the map waits after being moved before asking for what it can
 /// now see.
@@ -172,6 +173,10 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   )..addListener(_zoomStep);
   double? _easeFrom;
   double? _easeTo;
+
+  /// The map's own hold on the keyboard, taken back from anything being
+  /// typed into whenever the map is pressed.
+  final _mapFocus = FocusNode(debugLabel: 'map');
 
   /// Who an edit would be made as.
   Account _account = const Account();
@@ -355,6 +360,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _nodeSprite?.dispose();
     _stats.dispose();
     _comment.dispose();
+    _mapFocus.dispose();
     super.dispose();
   }
 
@@ -597,6 +603,20 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     if (first) _loader.editsChanged();
   }
 
+  /// Gives each element its new tags, all as one change.
+  ///
+  /// However many elements one edit of the text touches, it was one thing to
+  /// whoever made it and is one thing to undo.
+  void _setTags(List<(OsmElement, Map<String, String>)> changes) {
+    final mark = _edits.length;
+    for (final (element, tags) in changes) {
+      _edits.setTags(element, tags);
+    }
+    _edits.combineSince(mark);
+    _loader.editsChanged();
+    _refreshPicked();
+  }
+
   /// Puts back the last change made.
   ///
   /// While a line is being drawn that is its last point: the line is not a
@@ -768,14 +788,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
 
   /// Where a node is, in world coordinates.
   List<double>? _pointOf(int id) {
-    final node = _edits.movedNode(id) ?? _loader.store.nodes[id];
+    final node = _edits.changedNode(id) ?? _loader.store.nodes[id];
     if (node == null) return null;
     return [Mercator.x(node.longitude), Mercator.y(node.latitude)];
   }
 
   /// Whether a click landed on the node with [id].
   bool _isOn(int id, Offset at) {
-    final node = _edits.movedNode(id) ?? _loader.store.nodes[id];
+    final node = _edits.changedNode(id) ?? _loader.store.nodes[id];
     if (node == null) return false;
     final where = _camera.toScreen(
       Mercator.x(node.longitude),
@@ -877,7 +897,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
 
   List<double> _pointsOfWay(OsmWay way) => [
     for (final id in way.nodeIds)
-      if ((_edits.movedNode(id) ?? _loader.store.nodes[id])
+      if ((_edits.changedNode(id) ?? _loader.store.nodes[id])
           case final node?) ...[
         Mercator.x(node.longitude),
         Mercator.y(node.latitude),
@@ -931,31 +951,31 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           },
           child: Actions(
             actions: <Type, Action<Intent>>{
-              _UndoIntent: CallbackAction<_UndoIntent>(
+              _UndoIntent: _MapAction<_UndoIntent>(
                 onInvoke: (_) {
                   _undo();
                   return null;
                 },
               ),
-              _DeleteIntent: CallbackAction<_DeleteIntent>(
+              _DeleteIntent: _MapAction<_DeleteIntent>(
                 onInvoke: (_) {
                   _deleteSelected();
                   return null;
                 },
               ),
-              _FinishIntent: CallbackAction<_FinishIntent>(
+              _FinishIntent: _MapAction<_FinishIntent>(
                 onInvoke: (_) {
                   if (_tool != MapTool.browse) _finishLine();
                   return null;
                 },
               ),
-              _ToolIntent: CallbackAction<_ToolIntent>(
+              _ToolIntent: _MapAction<_ToolIntent>(
                 onInvoke: (intent) {
                   _chooseTool(intent.tool);
                   return null;
                 },
               ),
-              _AbandonIntent: CallbackAction<_AbandonIntent>(
+              _AbandonIntent: _MapAction<_AbandonIntent>(
                 onInvoke: (_) {
                   _abandonLine();
                   return null;
@@ -964,6 +984,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
             },
             child: Focus(
               autofocus: true,
+              focusNode: _mapFocus,
               child: Stack(
                 children: [
                   // Only the map takes the pointer. The buttons over it are
@@ -972,8 +993,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                   // button instead of reaching the map underneath.
                   Positioned.fill(
                     child: Listener(
-                      onPointerDown: (event) =>
-                          _pressedAt = event.localPosition,
+                      onPointerDown: (event) {
+                        _pressedAt = event.localPosition;
+                        // Pressing on the map takes the keys back from
+                        // anything being typed into, which is also what
+                        // applies tags being edited before the press can
+                        // change what is selected.
+                        _mapFocus.requestFocus();
+                      },
                       onPointerSignal: _scroll,
                       child: MouseRegion(
                         onHover: (event) => _hover(event.localPosition),
@@ -1088,7 +1115,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                     Positioned(
                       left: 12,
                       bottom: 12,
-                      child: _Tags(selected: _selected.values.toList()),
+                      child: TagEditor(
+                        elements: [
+                          for (final picked in _selected.values) picked.element,
+                        ],
+                        onChanged: _setTags,
+                        returnFocus: _mapFocus,
+                      ),
                     ),
                   if (_notice case final notice?)
                     Positioned(
@@ -1308,98 +1341,6 @@ class _ZoomToEdit extends StatelessWidget {
                 style: TextStyle(fontSize: 14, color: Color(0xffffffff)),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The tags of what is selected.
-///
-/// One thing selected shows everything it is tagged with. Several show what
-/// they have in common, which is what says whether they can be treated as one
-/// thing, and the count says how many they are.
-class _Tags extends StatelessWidget {
-  final List<Picked> selected;
-
-  const _Tags({required this.selected});
-
-  /// The tags every selected way carries with the same value.
-  Map<String, String> get _shared {
-    final shared = Map<String, String>.from(selected.first.tags);
-    for (final picked in selected.skip(1)) {
-      shared.removeWhere((key, value) => picked.tags[key] != value);
-    }
-    return shared;
-  }
-
-  /// What to call the selection.
-  String get _title {
-    if (selected.length > 1) return '${selected.length} selected';
-    final only = selected.single;
-    return switch (only.type) {
-      OsmElementType.node => 'Node ${only.id}',
-      OsmElementType.way => 'Way ${only.id}',
-      OsmElementType.relation => 'Relation ${only.id}',
-    };
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final tags = _shared;
-    final entries = tags.keys.toList()..sort();
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xee2b3036),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 280, maxWidth: 340),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: DefaultTextStyle(
-            style: const TextStyle(
-              color: Color(0xffffffff),
-              fontSize: 12,
-              fontFamily: 'monospace',
-              height: 1.5,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _title,
-                  style: const TextStyle(
-                    color: Color(0xff9ec1ff),
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                if (entries.isEmpty)
-                  Text(
-                    selected.length == 1
-                        ? 'no tags'
-                        : 'nothing tagged the same',
-                    style: const TextStyle(color: Color(0xffa0a6ad)),
-                  )
-                else
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          for (final key in entries)
-                            Text('$key = ${tags[key]}'),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
           ),
         ),
       ),
@@ -1660,5 +1601,26 @@ class _ToolButton extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// One of the map's own keyboard actions, which stands aside while text is
+/// being typed.
+///
+/// The map's keys are nearer to a text field than the ones that edit text,
+/// so without this backspace in the tags would delete what is selected and
+/// typing a 1 would take up the node tool. Standing aside lets the key
+/// carry on to the text field as if the map were not there.
+class _MapAction<T extends Intent> extends CallbackAction<T> {
+  _MapAction({required super.onInvoke});
+
+  @override
+  bool isEnabled(T intent) => !_typing;
+
+  static bool get _typing {
+    final focused = FocusManager.instance.primaryFocus?.context;
+    return focused != null &&
+        (focused.widget is EditableText ||
+            focused.findAncestorWidgetOfExactType<EditableText>() != null);
   }
 }

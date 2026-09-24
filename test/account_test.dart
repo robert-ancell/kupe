@@ -105,7 +105,7 @@ void main() {
         ),
       );
       expect(find.textContaining('Create node'), findsOneWidget);
-      expect(find.textContaining('Move node/7'), findsOneWidget);
+      expect(find.textContaining('Change node/7'), findsOneWidget);
     });
 
     testWidgets('will not send without a comment', (tester) async {
@@ -159,7 +159,7 @@ void main() {
       await tester.tap(find.byKey(const Key('upload')));
       await tester.pumpAndSettle();
       expect(find.textContaining('got there first'), findsOneWidget);
-      expect(find.textContaining('Move node/7'), findsOneWidget);
+      expect(find.textContaining('Change node/7'), findsOneWidget);
     });
   });
 }

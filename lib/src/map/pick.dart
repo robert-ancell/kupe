@@ -25,6 +25,9 @@ sealed class Picked {
 
   /// What it is tagged with.
   Map<String, String> get tags;
+
+  /// The element itself, as it stood when it was picked.
+  OsmElement get element;
 }
 
 /// How near the pointer has to be to a node to pick it out, in pixels.
@@ -60,6 +63,9 @@ class PickedNode extends Picked {
 
   @override
   Map<String, String> get tags => node.tags;
+
+  @override
+  OsmElement get element => node;
 }
 
 /// A line the pointer is over, and the geometry to draw it by.
@@ -91,6 +97,9 @@ class PickedWay extends Picked {
 
   @override
   Map<String, String> get tags => way.tags;
+
+  @override
+  OsmElement get element => way;
 }
 
 /// The same thing picked out, from where it now is.
@@ -102,7 +111,7 @@ Picked? refreshed(Picked picked, MapStore store, OsmEdits edits) {
   if (edits.isGone(picked.type, picked.id)) return null;
   switch (picked) {
     case PickedNode():
-      final node = edits.movedNode(picked.id) ?? store.nodes[picked.id];
+      final node = edits.changedNode(picked.id) ?? store.nodes[picked.id];
       if (node == null) return null;
       return PickedNode(
         node: node,
@@ -114,7 +123,8 @@ Picked? refreshed(Picked picked, MapStore store, OsmEdits edits) {
       if (way == null) return null;
       final points = worldPointsOf(way, store, edits);
       if (points == null || points.length < 4) return null;
-      return PickedWay(way: way, points: points, width: picked.width);
+      // Measured again: other tags can mean other lines.
+      return PickedWay(way: way, points: points, width: pickWidthOf(way));
   }
 }
 
@@ -263,7 +273,7 @@ PickedNode? nodeAt(
       )) {
         continue;
       }
-      final node = edits?.movedNode(id) ?? store.nodes[id];
+      final node = edits?.changedNode(id) ?? store.nodes[id];
       if (node == null) continue;
       consider(node);
     }
@@ -274,14 +284,14 @@ PickedNode? nodeAt(
     for (final element in store.drawnIn(tile)) {
       if (element is! OsmNode) continue;
       if (edits?.isGone(OsmElementType.node, element.id) ?? false) continue;
-      final node = edits?.movedNode(element.id) ?? element;
+      final node = edits?.changedNode(element.id) ?? element;
       if (isNodeMarked(node, through)) consider(node);
     }
   }
 
   // A node just put down belongs to no way at all, and is always there to be
   // taken hold of.
-  for (final node in edits?.movedNodes.values ?? const <OsmNode>[]) {
+  for (final node in edits?.changedNodes.values ?? const <OsmNode>[]) {
     if (edits!.isGone(OsmElementType.node, node.id)) continue;
     if (through(node.id) > 0) continue;
     consider(node);
@@ -309,25 +319,12 @@ PickedWay? wayAt(
   var nearestDistance = double.infinity;
 
   for (final way in waysNear(store, edits, _tilesAround(world, reach, zoom))) {
-    // Taken hold of by its lines: a road by the road, an area by the edge
-    // around it. Not by the inside of an area, which is mostly other things
-    // — the paths across a park, the building in the middle of a car park —
-    // and would take every click meant for them.
-    final layers = [
-      for (final layer in wayLayersFor(way))
-        if (mapStyle[layer].kind == LayerKind.line) layer,
-    ];
-
     final points = worldPointsOf(way, store, edits);
     if (points == null || points.length < 4) continue;
 
     // Anywhere the line is drawn counts, so half its width is taken off the
-    // distance before anything is compared. A line with nothing said about
-    // it yet, which is what one just drawn is, is taken at its drawn width.
-    var width = mapStyle[layerIndex('minor')].width;
-    for (final layer in layers) {
-      if (mapStyle[layer].width > width) width = mapStyle[layer].width;
-    }
+    // distance before anything is compared.
+    final width = pickWidthOf(way);
     final half = width / 2 / camera.scale;
     final distance = _distanceTo(points, world) - half;
     if (distance > reach || distance >= nearestDistance) continue;
@@ -336,6 +333,25 @@ PickedWay? wayAt(
     nearest = PickedWay(way: way, points: points, width: width);
   }
   return nearest;
+}
+
+/// How wide [way] is to take hold of, in pixels: the widest of the lines it
+/// is drawn with, and never less than a road.
+///
+/// By its lines: a road by the road, an area by the edge around it. Not by
+/// the inside of an area, which is mostly other things — the paths across a
+/// park, the building in the middle of a car park — and would take every
+/// click meant for them. Never less than a road, since a hairline is too
+/// thin to aim at.
+double pickWidthOf(OsmWay way) {
+  var width = mapStyle[layerIndex('minor')].width;
+  for (final layer in wayLayersFor(way)) {
+    final style = mapStyle[layer];
+    if (style.kind == LayerKind.line && style.width > width) {
+      width = style.width;
+    }
+  }
+  return width;
 }
 
 /// The tiles to look through for something under a world position.
@@ -368,7 +384,7 @@ List<double>? worldPointsOf(OsmWay way, MapStore store, [OsmEdits? edits]) {
     // the line: a way that still names one has not caught up yet, and it is
     // better drawn short than not at all.
     if (edits?.isGone(OsmElementType.node, id) ?? false) continue;
-    final node = edits?.movedNode(id) ?? store.nodes[id];
+    final node = edits?.changedNode(id) ?? store.nodes[id];
     if (node == null) return null;
     points.add(Mercator.x(node.longitude));
     points.add(Mercator.y(node.latitude));

@@ -112,4 +112,4 @@ int? _segmentBetween(OsmWay way, int before, int after) {
 }
 
 OsmNode? _nodeOf(int id, MapStore store, OsmEdits edits) =>
-    edits.movedNode(id) ?? store.nodes[id];
+    edits.changedNode(id) ?? store.nodes[id];
