@@ -47,9 +47,29 @@ List<OperationKind> _kinds(List<OfferedOperation> offered) => [
 ];
 
 void main() {
-  test('offers nothing for nothing', () {
+  test('offers only to paste with nothing selected', () {
     final view = _roads();
-    expect(offeredOperations(view, const []), isEmpty);
+    final nothing = offeredOperations(view, const []);
+    expect(_kinds(nothing), [OperationKind.paste]);
+    expect(nothing.single.disabled, 'No features have been copied.');
+
+    final copied = osmCopy(view, [view.way(11)!, view.way(10)!]);
+    final something = offeredOperations(view, const [], copied: copied);
+    expect(something.single.enabled, isTrue);
+    expect(something.single.description, 'Add 2 duplicate features here.');
+  });
+
+  test('names what one pasted thing is', () {
+    final store = MapStore()
+      ..add(_tile, [
+        _node(1, 0, {'amenity': 'bench', 'name': 'Rest'}),
+      ]);
+    final view = StoreEditView(store, OsmEdits());
+    final copied = osmCopy(view, [view.node(1)!]);
+    expect(
+      offeredOperations(view, const [], copied: copied).single.description,
+      'Add a duplicate Rest here.',
+    );
   });
 
   test('offers what applies to a line, in iD\'s order', () {
@@ -58,10 +78,12 @@ void main() {
     // It touches the footway at its end, so it can be disconnected from it.
     expect(_kinds(offered), [
       OperationKind.disconnect,
+      OperationKind.move,
       OperationKind.reverse,
+      OperationKind.copy,
       OperationKind.delete,
     ]);
-    final reverse = offered[1];
+    final reverse = offered[2];
     expect(reverse.title, 'Reverse');
     expect(reverse.key, 'V');
     expect(reverse.description, 'Make this line go in the opposite direction.');
@@ -105,7 +127,10 @@ void main() {
       OperationKind.continueLine,
       OperationKind.disconnect,
       OperationKind.extract,
+      OperationKind.move,
       OperationKind.split,
+      // A node along a way that says something is worth copying on its own.
+      OperationKind.copy,
       OperationKind.delete,
     ]);
     final split = offered.firstWhere((o) => o.kind == OperationKind.split);

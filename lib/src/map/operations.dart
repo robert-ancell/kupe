@@ -16,11 +16,20 @@ enum OperationKind {
   /// Making what is selected one.
   merge,
 
+  /// Moving what is selected to follow the pointer.
+  move,
+
+  /// Adding a copy of what was copied where the pointer is.
+  paste,
+
   /// Turning what is selected round.
   reverse,
 
   /// Dividing lines where the selected nodes are.
   split,
+
+  /// Keeping what is selected to paste later.
+  copy,
 
   /// Taking what is selected off the map.
   delete,
@@ -69,14 +78,35 @@ class OfferedOperation {
 /// with the reason, as iD offers it, so that whoever reaches for it learns
 /// why. [tooLarge] says too little of the selection is on screen to be sure
 /// of what is being done to it.
+///
+/// With nothing selected, the one thing there is to do is paste what was
+/// [copied], which is offered greyed while nothing has been.
 List<OfferedOperation> offeredOperations(
   OsmEditView view,
   List<OsmElement> selected, {
   OsmPresets? presets,
   Set<String> here = const {},
   bool tooLarge = false,
+  OsmCopied? copied,
 }) {
-  if (selected.isEmpty) return const [];
+  if (selected.isEmpty) {
+    return [
+      OfferedOperation(
+        kind: OperationKind.paste,
+        title: 'Paste',
+        icon: Icons.content_paste,
+        key: 'Ctrl+V',
+        description: switch (copied) {
+          null => '',
+          final copied when copied.length == 1 =>
+            'Add a duplicate ${_labelOf(copied.elements.single, view, presets, here)} '
+                'here.',
+          final copied => 'Add ${copied.length} duplicate features here.',
+        },
+        disabled: copied == null ? 'No features have been copied.' : null,
+      ),
+    ];
+  }
   final single = selected.length == 1;
   String one(String ifOne, String ifMany) => single ? ifOne : ifMany;
 
@@ -195,6 +225,27 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
+  offered.add(
+    OfferedOperation(
+      kind: OperationKind.move,
+      title: 'Move',
+      icon: Icons.open_with,
+      key: 'M',
+      description: one(
+        'Move this feature to a different location.',
+        'Move these features to a different location.',
+      ),
+      disabled: tooLarge
+          ? one(
+              "This feature can't be moved because not enough of it is "
+                  'currently visible.',
+              "These features can't be moved because not enough of them are "
+                  'currently visible.',
+            )
+          : null,
+    ),
+  );
+
   final reverse = OsmReverse(view, selected);
   if (reverse.available) {
     offered.add(
@@ -243,6 +294,29 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
+  if (osmCopy(view, selected) != null) {
+    offered.add(
+      OfferedOperation(
+        kind: OperationKind.copy,
+        title: 'Copy',
+        icon: Icons.content_copy,
+        key: 'Ctrl+C',
+        description: one(
+          'Copy this feature to paste it later.',
+          'Copy these features to paste them later.',
+        ),
+        disabled: tooLarge
+            ? one(
+                "This can't be copied because not enough of it is currently "
+                    'visible.',
+                "These can't be copied because not enough of them are "
+                    'currently visible.',
+              )
+            : null,
+      ),
+    );
+  }
+
   final delete = OsmDelete(view, selected);
   offered.add(
     OfferedOperation(
@@ -282,6 +356,23 @@ List<OfferedOperation> offeredOperations(
   );
 
   return offered;
+}
+
+/// What to call [element] in a sentence: its name, or failing that what
+/// kind of thing it is, in lower case, as iD words it.
+String _labelOf(
+  OsmElement element,
+  OsmEditView view,
+  OsmPresets? presets,
+  Set<String> here,
+) {
+  final name = element.tags['name'];
+  if (name != null && name.isNotEmpty) return name;
+  if (presets == null) return 'feature';
+  return presets
+      .match(element.tags, view.geometryOf(element), here: here)
+      .name
+      .toLowerCase();
 }
 
 /// What disconnecting does, in iD's words, by what is disconnected.

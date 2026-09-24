@@ -1541,6 +1541,77 @@ void main() {
       expect(selectedWay(tester).nodeIds, before.reversed.toList());
     });
 
+    testWidgets('moves what is selected with the pointer, as one change', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await _click(tester, road);
+      final before = selectedWay(tester);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: road);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+      await tester.pump();
+      await mouse.moveTo(road + const Offset(0, 60));
+      await tester.pump();
+      // Put down where the pointer is.
+      await _click(tester, road + const Offset(0, 60));
+
+      final after = selectedWay(tester);
+      final points = _painterIn(tester).selection.single as PickedWay;
+      final camera = _painterIn(tester).camera;
+      final size = tester.getSize(find.byType(MapView));
+      final start = camera.toScreen(points.points[0], points.points[1], size);
+      expect(start.dy, closeTo(460, 1));
+      expect(after.nodeIds, before.nodeIds);
+
+      await _undo(tester);
+      final back = _painterIn(tester).selection.single as PickedWay;
+      expect(
+        camera.toScreen(back.points[0], back.points[1], size).dy,
+        closeTo(400, 1),
+      );
+    });
+
+    testWidgets('puts back what was being moved on escape', (tester) async {
+      await openOver(tester);
+      await _click(tester, road);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: road);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+      await tester.pump();
+      await mouse.moveTo(road + const Offset(0, 60));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.textContaining('Upload'), findsNothing);
+    });
+
+    testWidgets('pastes a copy where the menu is opened', (tester) async {
+      await openOver(tester);
+      await rightClick(tester, road);
+      await tester.tap(find.text('Copy'));
+      await tester.pumpAndSettle();
+      // Nothing is selected where nothing is, and pasting is what there is.
+      await rightClick(tester, const Offset(450, 600));
+      await tester.tap(find.text('Paste'));
+      await tester.pumpAndSettle();
+
+      final pasted = selectedWay(tester);
+      expect(pasted.id, isNegative);
+      expect(pasted.nodeIds, hasLength(3));
+      expect(pasted.tags, {'highway': 'residential'});
+      final picked = _painterIn(tester).selection.single as PickedWay;
+      final size = tester.getSize(find.byType(MapView));
+      final middle = _painterIn(tester).camera
+          .toScreen(picked.points[2], picked.points[3], size);
+      // Copied from a point on the road 50 left of its middle, pasted the
+      // same way round the point it was pasted at.
+      expect(middle.dx, closeTo(500, 1));
+      expect(middle.dy, closeTo(600, 1));
+    });
+
     testWidgets('splits a line where a node along it is selected', (
       tester,
     ) async {

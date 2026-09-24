@@ -222,6 +222,21 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Where the pointer is, for the line to follow while it is being drawn.
   Offset? _pointerAt;
 
+  /// Where the pointer was last seen over the map, whatever is in hand: where
+  /// a paste goes, and where a move starts from, when they come from a key.
+  Offset? _lastPointer;
+
+  /// Where the menu was opened, which is where what it does is done.
+  Offset? _menuAt;
+
+  /// What was copied, to paste.
+  OsmCopied? _copied;
+
+  /// What is being moved to follow the pointer, if anything is: how many
+  /// changes there were before it started, where the pointer started, in
+  /// world coordinates, and what is moving.
+  (int, Offset, List<OsmElement>)? _moving;
+
   DateTime? _tappedAt;
   Offset? _tappedOn;
 
@@ -513,6 +528,11 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Only while the map is close enough to edit: further out the lines are
   /// too fine to point at, and there is nothing to be done with one anyway.
   void _hover(Offset at) {
+    _lastPointer = at;
+    if (_moving != null) {
+      _followPointer(at);
+      return;
+    }
     // What a click would draw follows the pointer, so where it is has to be
     // known before anything has been drawn at all.
     if (_tool != MapTool.browse) setState(() => _pointerAt = at);
@@ -542,6 +562,11 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// clears the selection, unless shift is held, since that is a miss rather
   /// than a change of mind.
   void _tap(Offset at) {
+    // A click puts down what is being moved.
+    if (_moving != null) {
+      setState(() => _moving = null);
+      return;
+    }
     if (_tooFarToEdit) return;
 
     // A second click in the same place, soon enough, puts a node into the
@@ -677,14 +702,51 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// What can be done to what is selected, as iD offers it.
   List<OfferedOperation> _offered() {
     final selected = _selectedElements;
-    if (selected.isEmpty) return const [];
     return offeredOperations(
       _view,
       selected,
       presets: widget.presets?.value,
-      here: _regionsOf(selected.first),
-      tooLarge: _selectionTooLarge,
+      here: selected.isEmpty ? const {} : _regionsOf(selected.first),
+      tooLarge: selected.isNotEmpty && _selectionTooLarge,
+      copied: _copied,
     );
+  }
+
+  /// Where on the map what is done by a key or from the menu is done, in
+  /// world coordinates: where the menu was opened, or where the pointer is,
+  /// or the middle of the view.
+  Offset get _actionPoint => _camera.toWorld(
+    _menuAt ?? _lastPointer ?? _size.center(Offset.zero),
+    _size,
+  );
+
+  /// Moves what is being moved to where the pointer has got to from where
+  /// it started.
+  ///
+  /// The move is made afresh from where everything was each time, so that
+  /// however long the pointer wanders it comes to one change to undo.
+  void _followPointer(Offset at) {
+    final (mark, start, elements) = _moving!;
+    while (_edits.length > mark) {
+      _edits.undo();
+    }
+    final world = _camera.toWorld(at, _size);
+    osmMove(_view, elements, dx: world.dx - start.dx, dy: world.dy - start.dy);
+    _loader.editsChanged();
+    setState(_refreshPicked);
+  }
+
+  /// Puts back what was being moved where it was.
+  void _cancelMove() {
+    final (mark, _, _) = _moving!;
+    while (_edits.length > mark) {
+      _edits.undo();
+    }
+    _loader.editsChanged();
+    setState(() {
+      _moving = null;
+      _refreshPicked();
+    });
   }
 
   /// Does [kind] to what is selected, or says why it cannot be done.
@@ -693,7 +755,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// cannot be done is all there is to show, so it is said along the bottom
   /// of the map, as iD flashes it.
   void _perform(OperationKind kind) {
-    if (_tooFarToEdit || _tool != MapTool.browse) return;
+    if (_tooFarToEdit || _tool != MapTool.browse || _moving != null) return;
+    // Pasting by its key works with something selected too, taking the place
+    // of the selection with what is pasted.
+    if (kind == OperationKind.paste && _copied != null) {
+      _paste();
+      return;
+    }
     final offer = _offered().where((o) => o.kind == kind).firstOrNull;
     if (offer == null) return;
     if (offer.disabled case final why?) {
@@ -703,6 +771,19 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final view = _view;
     final selected = _selectedElements;
     switch (kind) {
+      case OperationKind.move:
+        setState(() => _moving = (_edits.length, _actionPoint, selected));
+        return;
+      case OperationKind.copy:
+        _copied = osmCopy(
+          view,
+          selected,
+          anchor: (_actionPoint.dx, _actionPoint.dy),
+        );
+        return;
+      case OperationKind.paste:
+        _paste();
+        return;
       case OperationKind.continueLine:
         final line = osmContinuable(view, selected)!.single;
         final vertex = selected.whereType<OsmNode>().single;
@@ -754,6 +835,21 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     }
   }
 
+  /// Adds a copy of what was copied where the action is, and selects it.
+  ///
+  /// The point the pointer was at when it was copied lands where the pointer
+  /// is now; a single node, or anything copied with the pointer nowhere,
+  /// lands by its middle.
+  void _paste() {
+    final copied = _copied;
+    if (copied == null) return;
+    final to = _actionPoint;
+    final (fromX, fromY) = copied.anchor ?? copied.middle;
+    _selectAfter(
+      osmPaste(_edits, copied, dx: to.dx - fromX, dy: to.dy - fromY),
+    );
+  }
+
   /// Selects [elements] as they now stand once an operation has changed
   /// them.
   void _selectAfter(List<OsmElement> elements) {
@@ -794,6 +890,11 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// so that what the menu offers is for what was pointed at. Pointing at
   /// nothing lets go of the selection, and there is nothing to offer.
   Future<void> _openMenu(Offset at, Offset global) async {
+    // A right click while something is being moved gives up on the move.
+    if (_moving != null) {
+      _cancelMove();
+      return;
+    }
     if (_tooFarToEdit || _tool != MapTool.browse) return;
     final picked = pickAt(
       at,
@@ -815,6 +916,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     });
     final offered = _offered();
     if (offered.isEmpty) return;
+    _menuAt = at;
 
     final overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
@@ -854,6 +956,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       ],
     );
     if (chosen != null && mounted) _perform(chosen);
+    _menuAt = null;
   }
 
   /// Carries on drawing [line] from [vertex], its first node or its last.
@@ -917,6 +1020,11 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// While a line is being drawn that is its last point: the line is not a
   /// line yet, so there is nothing else it could mean.
   void _undo() {
+    // Undoing mid move is giving up on the move.
+    if (_moving != null) {
+      _cancelMove();
+      return;
+    }
     // Carrying a line on with nothing added to it yet is only the start of
     // it, and taking that back is giving up on it.
     if (_continuing != null && _drawing.length <= 1) {
@@ -1260,6 +1368,16 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                 const _OperationIntent(OperationKind.merge),
             const SingleActivator(LogicalKeyboardKey.keyX):
                 const _OperationIntent(OperationKind.split),
+            const SingleActivator(LogicalKeyboardKey.keyM):
+                const _OperationIntent(OperationKind.move),
+            const SingleActivator(LogicalKeyboardKey.keyC, control: true):
+                const _OperationIntent(OperationKind.copy),
+            const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+                const _OperationIntent(OperationKind.copy),
+            const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+                const _OperationIntent(OperationKind.paste),
+            const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+                const _OperationIntent(OperationKind.paste),
             const SingleActivator(LogicalKeyboardKey.keyV):
                 const _OperationIntent(OperationKind.reverse),
             const SingleActivator(LogicalKeyboardKey.enter):
@@ -1306,6 +1424,10 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
               ),
               _AbandonIntent: _MapAction<_AbandonIntent>(
                 onInvoke: (_) {
+                  if (_moving != null) {
+                    _cancelMove();
+                    return null;
+                  }
                   _abandonLine();
                   return null;
                 },
