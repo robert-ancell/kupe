@@ -150,8 +150,8 @@ final pointLayers = [layerIndex('vertex-edge'), layerIndex('vertex')];
 
 /// The line layer drawing the edge of a filled layer, or null if it has none.
 ///
-/// An edge is a line, so it is a fixed width on screen and is rebuilt when
-/// the map is zoomed, while the fill it goes around is built once.
+/// An edge is a line, so it is a fixed width on screen at every zoom while
+/// the fill it goes around covers the same ground.
 int? areaEdgeLayer(int fill) => _areaEdges[fill];
 
 final _areaEdges = <int, int>{

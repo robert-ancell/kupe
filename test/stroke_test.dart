@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:kupe/src/render/stroke.dart';
 import 'package:test/test.dart';
@@ -134,5 +135,46 @@ void main() {
   test('a way doubling back on itself stays finite', () {
     final out = strokePolyline([0, 0, 100, 0, 0, 0], 10);
     expect(out.every((v) => v.isFinite), isTrue);
+  });
+
+  group('one build for every zoom', () {
+    // A zig-zag with a gentle corner, a right angle and one sharp enough to
+    // be past the miter limit, so every kind of join is made.
+    const ground = <double>[0, 0, 40, 3, 40, 40, 44, -30, 90, -28];
+
+    for (final join in LineJoin.values) {
+      for (final cap in LineCap.values) {
+        test('comes out as if stroked on screen, $join, $cap', () {
+          const width = 5.0;
+          final built = strokeAnchored(ground, width, cap: cap, join: join);
+          for (final unitsPerPixel in [0.01, 0.37, 1.0, 8.0, 250.0]) {
+            // The same line stroked where it is on screen, a pixel a unit.
+            final onScreen = strokeAnchored(
+              [for (final value in ground) value / unitsPerPixel],
+              width,
+              cap: cap,
+              join: join,
+            ).at(1);
+            final placed = built.at(unitsPerPixel);
+            expect(placed.length, onScreen.length, reason: '$unitsPerPixel');
+            for (var i = 0; i < placed.length; i++) {
+              expect(
+                placed[i] / unitsPerPixel,
+                closeTo(onScreen[i], 1e-3),
+                reason: 'number $i at $unitsPerPixel units a pixel',
+              );
+            }
+          }
+        });
+      }
+    }
+
+    test('places into the room it is given rather than making more', () {
+      final built = strokeAnchored([0, 0, 10, 0, 10, 10], 4);
+      final room = Float32List(built.anchors.length + 10);
+      expect(identical(built.at(2, room), room), isTrue);
+      final small = Float32List(1);
+      expect(identical(built.at(2, small), small), isFalse);
+    });
   });
 }

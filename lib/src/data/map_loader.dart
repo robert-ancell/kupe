@@ -62,22 +62,6 @@ const retryDelay = Duration(seconds: 8);
 /// How far a tile will be split when the API says it holds too much.
 const maximumSplits = 2;
 
-/// How far a line's width may drift from what the style asks for before it is
-/// built again.
-///
-/// A line is a fixed number of pixels wide whatever the zoom, but its width
-/// is baked into its triangles, so zooming stretches it. A tenth is under a
-/// pixel on any line the style draws, which is not something anyone can pick
-/// out mid gesture, and it keeps a pinch from rebuilding the screen twice.
-const maximumWidthError = 0.1;
-
-/// How long is spent rebuilding line widths in one go.
-///
-/// Rebuilding happens on the interface thread, between frames, so it is
-/// bounded rather than run to completion: a tile or two catch up each frame
-/// and the rest follow.
-const restrokeBudget = Duration(milliseconds: 4);
-
 /// Reads the visible map from OpenStreetMap, a tile at a time.
 ///
 /// Only what is on screen is asked for, only once, and only while the map is
@@ -165,26 +149,16 @@ class MapLoader {
     for (final tile in _built.keys.toList()) {
       final drawn = store.drawnIn(tile);
       if (!drawn.any((e) => affected.contains((e.type, e.id)))) continue;
-      final pixels =
-          _camera?.pixelsPerTile(tile.zoom) ?? _built[tile]!.pixelsPerTile;
       final report = tessellate(
         store.subsetOf(drawn),
         zoom: tile.zoom,
-        pixelsPerTile: pixels,
         into: tile,
         waysThrough: store.waysThrough,
         skip: _isHidden,
       );
       // A tile with everything in it changed builds nothing at all, which is
       // an empty tile rather than a reason to keep the one that is wrong.
-      _built[tile] =
-          report.tiles[tile] ??
-          TileMesh(
-            id: tile,
-            pixelsPerTile: pixels,
-            fills: const [],
-            lines: const [],
-          );
+      _built[tile] = report.tiles[tile] ?? TileMesh.empty(tile);
     }
     onChanged();
   }
@@ -373,70 +347,6 @@ class MapLoader {
     await cache?.forget(tile);
   }
 
-  /// How many tiles on screen are drawn at a width that no longer matches
-  /// the zoom.
-  int get stale => _built.values.where(_isStale).length;
-
-  /// Whether a tile is on screen and drawn at the wrong width.
-  ///
-  /// A tile that has been scrolled away from is left as it is. Rebuilding it
-  /// would be work nobody can see, and it will be rebuilt if it is ever
-  /// looked at again.
-  bool _isStale(TileMesh mesh) {
-    final camera = _camera;
-    if (camera == null || !_isVisible(mesh.id, camera)) return false;
-    final wanted = camera.pixelsPerTile(mesh.id.zoom);
-    return (wanted - mesh.pixelsPerTile).abs() >
-        mesh.pixelsPerTile * maximumWidthError;
-  }
-
-  /// Rebuilds the lines of tiles whose widths no longer match the zoom, for
-  /// as long as [restrokeBudget] allows, and says whether any are left.
-  ///
-  /// Nearest the middle of the view first, so that what is being looked at
-  /// comes right before what is at the edge. Filled shapes are left alone;
-  /// only the lines carry a width. Nothing is read again: a tile is built
-  /// from the elements it drew, which the store still holds.
-  bool restroke() {
-    final camera = _camera;
-    if (camera == null) return false;
-
-    final stale = _built.values.where(_isStale).toList()
-      ..sort(
-        (a, b) =>
-            _fromCentre(a.id, camera).compareTo(_fromCentre(b.id, camera)),
-      );
-    if (stale.isEmpty) return false;
-
-    final clock = Stopwatch()..start();
-    for (final mesh in stale) {
-      final drawn = store.drawnIn(mesh.id);
-      if (drawn.isEmpty) continue;
-      final wanted = camera.pixelsPerTile(mesh.id.zoom);
-      final report = tessellate(
-        store.subsetOf(drawn),
-        zoom: mesh.id.zoom,
-        pixelsPerTile: wanted,
-        fills: false,
-        into: mesh.id,
-        waysThrough: store.waysThrough,
-        skip: _isHidden,
-      );
-      _built[mesh.id] = mesh.withLines(
-        report.tiles[mesh.id]?.lines ?? const [],
-        wanted,
-      );
-      if (clock.elapsed > restrokeBudget) break;
-    }
-    return _built.values.any(_isStale);
-  }
-
-  double _fromCentre(TileId tile, Camera camera) {
-    final dx = tile.worldX + tile.size / 2 - camera.x;
-    final dy = tile.worldY + tile.size / 2 - camera.y;
-    return dx * dx + dy * dy;
-  }
-
   bool _isVisible(TileId tile, Camera camera) {
     if (_size.isEmpty) return false;
     final view = camera.worldBounds(_size);
@@ -576,11 +486,9 @@ class MapLoader {
       onChanged();
       return;
     }
-    final camera = _camera;
     final report = tessellate(
       store.subsetOf(fresh),
       zoom: tile.zoom,
-      pixelsPerTile: camera?.pixelsPerTile(tile.zoom) ?? tilePixels,
       into: tile,
       // From everything held rather than everything in this box, so that two
       // roads meeting just over its edge are still a junction.

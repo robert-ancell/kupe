@@ -378,85 +378,26 @@ void main() {
       loader.dispose();
     });
   });
-  group('line widths', () {
-    test('a fresh tile is built for the zoom it was read at', () async {
+  group('zooming', () {
+    test('builds nothing again and asks for nothing', () async {
+      // A line is anchored to the ground with its width held apart, so a new
+      // zoom is arithmetic in the painter rather than a new tile here.
       final server = _Api();
       final loader = _loaderOn(server);
       loader.look(_at(17), _size);
       await _drain();
       expect(loader.tiles, isNotEmpty);
-      expect(loader.stale, 0);
-    });
-
-    test('zooming leaves the widths behind', () async {
-      final server = _Api();
-      final loader = _loaderOn(server);
-      loader.look(_at(17), _size);
-      await _drain();
-      loader.look(_at(18), _size);
-      expect(loader.stale, greaterThan(0));
-    });
-
-    test('a small zoom is inside the tolerance and rebuilds nothing', () async {
-      final server = _Api();
-      final loader = _loaderOn(server);
-      loader.look(_at(17), _size);
-      await _drain();
-      // A twentieth of a zoom level is a three and a half per cent error.
-      loader.look(_at(17.05), _size);
-      expect(loader.stale, 0);
-      expect(loader.restroke(), isFalse);
-    });
-
-    test('rebuilding catches the widths up with the zoom', () async {
-      final server = _Api();
-      final loader = _loaderOn(server);
-      loader.look(_at(17), _size);
-      await _drain();
-      loader.look(_at(19), _size);
-
-      var passes = 0;
-      while (loader.restroke() && passes < 100) {
-        passes += 1;
-      }
-      expect(loader.stale, 0);
-    });
-
-    test('rebuilding asks the API for nothing', () async {
-      final server = _Api();
-      final loader = _loaderOn(server);
-      loader.look(_at(17), _size);
-      await _drain();
+      final before = {for (final tile in loader.tiles) tile.id: tile};
       final asked = server.asked.length;
-      loader.look(_at(19), _size);
-      while (loader.restroke()) {}
-      expect(server.asked.length, asked);
-    });
 
-    test('rebuilding keeps the filled shapes as they were', () async {
-      final server = _Api();
-      final loader = _loaderOn(server);
-      loader.look(_at(17), _size);
-      await _drain();
-      final before = {for (final tile in loader.tiles) tile.id: tile.fills};
       loader.look(_at(19), _size);
-      while (loader.restroke()) {}
+      loader.look(_at(17.3), _size);
       for (final tile in loader.tiles) {
-        expect(identical(tile.fills, before[tile.id]), isTrue);
+        if (before[tile.id] case final was?) {
+          expect(identical(tile, was), isTrue, reason: '${tile.id}');
+        }
       }
-    });
-
-    test('leaves a tile that has been scrolled away from alone', () async {
-      final server = _Api();
-      final loader = _loaderOn(server);
-      loader.look(_at(17), _size);
-      await _drain();
-      expect(loader.tiles, isNotEmpty);
-      // Zoomed in, which would leave every width behind, and moved to the
-      // other side of the world, where none of them can be seen.
-      loader.look(Camera.at(latitude: 51.5, longitude: -0.12, zoom: 19), _size);
-      expect(loader.stale, 0);
-      expect(loader.restroke(), isFalse);
+      expect(server.asked.length, asked);
     });
   });
 }

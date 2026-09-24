@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
@@ -9,59 +10,132 @@ import '../imagery/imagery_layer.dart';
 import '../map/pick.dart';
 import '../map/camera.dart';
 import '../style/style.dart';
+import 'node_sprite.dart';
 import 'tile_mesh.dart';
 
 /// A tile's triangles as the engine holds them.
 ///
-/// Handing a list of numbers to the GPU means uploading it, which is work
-/// that must not happen while a frame is being drawn. Each mesh is converted
-/// once, the first time it is needed, and kept until the tile is dropped.
-/// Nothing about it changes with the zoom, so nothing goes up twice.
+/// Handing a list of numbers to the GPU means uploading it. Filled shapes go
+/// up once, the first time the tile is drawn, and stay there. Lines go up
+/// again whenever the zoom has changed since they last did, which costs a
+/// multiply and an add per number and a copy — no building — and happens
+/// only for tiles on screen. The points a line can be taken hold of by are
+/// one picture drawn many times, and only where each copy goes is kept.
 class GpuTileMesh {
-  /// Which tile this covers.
-  final TileId id;
+  /// What this was uploaded from.
+  final TileMesh source;
 
   /// The uploaded filled layers, paired with their index in the style.
   final List<(int, ui.Vertices)> fills;
 
-  /// The uploaded stroked layers, paired with their index in the style.
+  List<(int, ui.Vertices)> _lines = const [];
+  double? _linesAt;
+
+  Float32List? _pointTransforms;
+  Float32List? _pointRects;
+  double? _pointsAt;
+
+  GpuTileMesh._(this.source, this.fills);
+
+  /// Uploads the filled shapes of [mesh], skipping any layer with nothing in
+  /// it. Its lines wait until they are drawn and it is known at what zoom.
+  factory GpuTileMesh.of(TileMesh mesh) => GpuTileMesh._(mesh, [
+    for (final layer in mesh.fills)
+      if (layer.triangles.isNotEmpty)
+        (
+          layer.layer,
+          ui.Vertices.raw(ui.VertexMode.triangles, layer.triangles),
+        ),
+  ]);
+
+  /// Which tile this covers.
+  TileId get id => source.id;
+
+  /// Room to work out line positions in, shared by every tile since only one
+  /// is ever being uploaded at a time. The engine copies what it is given.
+  static var _scratch = Float32List(0);
+
+  /// The stroked layers, paired with their index in the style, for when a
+  /// pixel covers [unitsPerPixel] of the tile.
   ///
-  /// Replaced when the map has been zoomed far enough that the widths they
-  /// were built at are no longer right. The fills beside them are not: they
-  /// cover the same ground at any zoom.
-  List<(int, ui.Vertices)> lines;
-
-  GpuTileMesh._(this.id, this.fills, this.lines);
-
-  /// Uploads [mesh], skipping any layer with nothing in it.
-  factory GpuTileMesh.of(TileMesh mesh) =>
-      GpuTileMesh._(mesh.id, _upload(mesh.fills), _upload(mesh.lines));
-
-  /// Replaces the stroked layers with the ones in [mesh], leaving the fills
-  /// where they are.
-  void restroke(TileMesh mesh) {
-    for (final (_, vertices) in lines) {
-      vertices.dispose();
-    }
-    lines = _upload(mesh.lines);
+  /// The same ones as last time if the zoom has not changed, which is every
+  /// frame of a pan.
+  List<(int, ui.Vertices)> linesAt(double unitsPerPixel) {
+    if (_linesAt == unitsPerPixel) return _lines;
+    _disposeLines();
+    _lines = [
+      for (final layer in source.lines)
+        if (!layer.triangles.isEmpty)
+          (layer.layer, _upload(layer, unitsPerPixel)),
+    ];
+    _linesAt = unitsPerPixel;
+    return _lines;
   }
 
-  static List<(int, ui.Vertices)> _upload(List<LayerMesh> layers) {
-    return <(int, ui.Vertices)>[
-      for (final layer in layers)
-        if (layer.triangles.isNotEmpty)
-          (
-            layer.layer,
-            ui.Vertices.raw(ui.VertexMode.triangles, layer.triangles),
-          ),
-    ];
+  static ui.Vertices _upload(LineLayerMesh layer, double unitsPerPixel) {
+    final length = layer.triangles.anchors.length;
+    if (_scratch.length < length) _scratch = Float32List(length);
+    layer.triangles.at(unitsPerPixel, _scratch);
+    return ui.Vertices.raw(
+      ui.VertexMode.triangles,
+      Float32List.sublistView(_scratch, 0, length),
+    );
+  }
+
+  /// Where each copy of [sprite] goes, and which part of it to draw, for
+  /// when a pixel covers [unitsPerPixel] of the tile. Null if the tile marks
+  /// no points.
+  ///
+  /// In tile coordinates, under the same transform the triangles are drawn
+  /// with, so a pan moves them with everything else and only a zoom has to
+  /// work them out again: each copy is scaled down by as much as the tile is
+  /// scaled up, which leaves it the same size on screen at every zoom.
+  (Float32List, Float32List)? pointsAt(
+    double unitsPerPixel,
+    NodeSprite sprite,
+  ) {
+    final points = source.points;
+    if (points.isEmpty) return null;
+    final count = points.length ~/ 2;
+    final size = sprite.image.width.toDouble();
+    if (_pointRects == null || _pointRects![2] != size) {
+      _pointRects = Float32List(count * 4);
+      for (var i = 0; i < count; i++) {
+        _pointRects![i * 4 + 2] = size;
+        _pointRects![i * 4 + 3] = size;
+      }
+      _pointsAt = null;
+    }
+    if (_pointsAt != unitsPerPixel) {
+      final transforms = _pointTransforms ??= Float32List(count * 4);
+      // The picture's pixels to the tile's units.
+      final scale = unitsPerPixel / sprite.pixelRatio;
+      final half = size / 2 * scale;
+      for (var i = 0; i < count; i++) {
+        transforms[i * 4] = scale;
+        transforms[i * 4 + 1] = 0;
+        transforms[i * 4 + 2] = points[i * 2] - half;
+        transforms[i * 4 + 3] = points[i * 2 + 1] - half;
+      }
+      _pointsAt = unitsPerPixel;
+    }
+    return (_pointTransforms!, _pointRects!);
+  }
+
+  void _disposeLines() {
+    for (final (_, vertices) in _lines) {
+      vertices.dispose();
+    }
+    _lines = const [];
+    _linesAt = null;
   }
 
   /// Releases the uploaded triangles.
   void dispose() {
-    for (final (_, vertices) in [...fills, ...lines]) {
+    for (final (_, vertices) in fills) {
       vertices.dispose();
     }
+    _disposeLines();
   }
 }
 
@@ -122,6 +196,10 @@ class MapPainter extends CustomPainter {
   /// What the pointer is over, drawn over everything else.
   final Picked? highlight;
 
+  /// What the points a line can be taken hold of by are drawn with, once it
+  /// has been made. Until then they are not drawn.
+  final NodeSprite? nodeSprite;
+
   /// Called with how many draw calls the frame took.
   final void Function(int calls)? onDrawn;
 
@@ -135,6 +213,7 @@ class MapPainter extends CustomPainter {
     this.ghostNode,
     this.selection = const [],
     this.highlight,
+    this.nodeSprite,
     this.onDrawn,
   });
 
@@ -157,6 +236,9 @@ class MapPainter extends CustomPainter {
   ];
 
   static final _imageryPaint = Paint()..filterQuality = FilterQuality.low;
+
+  /// Smoothed, since a copy of the picture seldom lands on a whole pixel.
+  static final _spritePaint = Paint()..filterQuality = FilterQuality.low;
 
   /// The line that has not been drawn yet, in the colour of the line being
   /// drawn but faint, so that it reads as what would happen rather than as
@@ -235,11 +317,27 @@ class MapPainter extends CustomPainter {
     }
 
     final paints = imagery.isEmpty ? _paints : _overImagery;
+    final visible = [
+      for (final tile in tiles)
+        if (_isOnScreen(tile, size)) tile,
+    ];
     for (var layer = 0; layer < mapStyle.length; layer++) {
       final paint = paints[layer];
-      for (final tile in tiles) {
-        calls += _draw(canvas, size, tile, tile.fills, layer, paint);
-        calls += _draw(canvas, size, tile, tile.lines, layer, paint);
+      final kind = mapStyle[layer].kind;
+      for (final tile in visible) {
+        final unitsPerPixel = tileExtent / camera.pixelsPerTile(tile.id.zoom);
+        switch (kind) {
+          case LayerKind.fill:
+            calls += _draw(canvas, size, tile, tile.fills, layer, paint);
+          case LayerKind.line:
+            final lines = tile.linesAt(unitsPerPixel);
+            calls += _draw(canvas, size, tile, lines, layer, paint);
+          case LayerKind.point:
+            // One picture holds every part of a point, so it is drawn once,
+            // in the turn of the first layer a point is made of.
+            if (layer != pointLayers.first) continue;
+            calls += _drawPoints(canvas, size, tile, unitsPerPixel);
+        }
       }
       // What has been changed was left out of the tiles, so it goes in here,
       // in its own layer's turn, and looks like the rest of the map.
@@ -317,6 +415,60 @@ class MapPainter extends CustomPainter {
 
   /// Draws whichever of [uploaded] belongs to [layer], and says how many
   /// calls that took.
+  /// How far past its anchors anything in a tile can be drawn, in pixels:
+  /// half the widest line, stretched as far as a sharp corner's point is
+  /// allowed to go, with room to spare.
+  static const _reach = 32.0;
+
+  /// Whether anything [tile] draws can be on screen.
+  ///
+  /// By what the tile draws rather than by the tile, since a way that starts
+  /// in one tile is not cut off at its edge.
+  bool _isOnScreen(GpuTileMesh tile, Size size) {
+    final source = tile.source;
+    if (source.vertices == 0 && source.points.isEmpty) return false;
+    final bounds = source.bounds;
+    final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
+    final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
+    final drawn = Rect.fromLTRB(
+      origin.dx + bounds.left * scale,
+      origin.dy + bounds.top * scale,
+      origin.dx + bounds.right * scale,
+      origin.dy + bounds.bottom * scale,
+    ).inflate(_reach);
+    return drawn.overlaps(Offset.zero & size);
+  }
+
+  /// Draws the points [tile] marks, all of them in one call.
+  int _drawPoints(
+    Canvas canvas,
+    Size size,
+    GpuTileMesh tile,
+    double unitsPerPixel,
+  ) {
+    final sprite = nodeSprite;
+    if (sprite == null) return 0;
+    final placed = tile.pointsAt(unitsPerPixel, sprite);
+    if (placed == null) return 0;
+    final (transforms, rects) = placed;
+    final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
+    final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
+    canvas.save();
+    canvas.translate(origin.dx, origin.dy);
+    canvas.scale(scale, scale);
+    canvas.drawRawAtlas(
+      sprite.image,
+      transforms,
+      rects,
+      null,
+      null,
+      null,
+      _spritePaint,
+    );
+    canvas.restore();
+    return 1;
+  }
+
   int _draw(
     Canvas canvas,
     Size size,
@@ -467,5 +619,6 @@ class MapPainter extends CustomPainter {
       !identical(old.selection, selection) ||
       !identical(old.imagery, imagery) ||
       old.camera != camera ||
+      !identical(old.nodeSprite, nodeSprite) ||
       !identical(old.tiles, tiles);
 }

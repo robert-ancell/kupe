@@ -35,8 +35,8 @@ class TessellationReport {
   int get vertices =>
       tiles.values.fold(0, (total, tile) => total + tile.vertices);
 
-  /// How many bytes of vertex data were produced.
-  int get bytes => vertices * 8;
+  /// How many bytes were produced.
+  int get bytes => tiles.values.fold(0, (total, tile) => total + tile.bytes);
 
   /// How many draw calls a frame showing every tile would take.
   int get drawCalls => tiles.values.fold(
@@ -48,16 +48,17 @@ class TessellationReport {
 /// Turns a dataset into the triangles that draw it.
 ///
 /// Geometry is grouped into tiles at [zoom] so that it can be culled and
-/// thrown away in pieces. [pixelsPerTile] is how wide a tile is expected to
-/// be on screen, which sets how wide lines are built.
+/// thrown away in pieces.
+///
+/// What is built serves every zoom. Filled shapes cover the same ground
+/// whatever the zoom; lines are anchored to the ground with their width in
+/// pixels held apart; the points a line can be taken hold of by are only
+/// where they are. So a tile is built once, when it arrives or when
+/// something in it is changed, and never because the map was zoomed.
 ///
 /// Elements are put in the tile holding their first node and are not cut at
 /// the tile edge, so a tile's geometry can reach beyond it. That costs some
 /// precision when culling and saves having to clip every shape.
-///
-/// Set [fills] or [lines] to false to build only one of the two. Zooming
-/// changes what lines have to look like but leaves filled shapes alone, so a
-/// rebuild on zoom only has to redo the lines.
 ///
 /// [skip] leaves elements out, for anything being drawn some other way.
 ///
@@ -72,9 +73,6 @@ class TessellationReport {
 TessellationReport tessellate(
   OsmSubset data, {
   required int zoom,
-  required double pixelsPerTile,
-  bool fills = true,
-  bool lines = true,
   TileId? into,
   int Function(int nodeId)? waysThrough,
   bool Function(OsmElement element)? skip,
@@ -98,27 +96,8 @@ TessellationReport tessellate(
     }
 
     final built = switch (element) {
-      OsmWay() => _way(
-        element,
-        data,
-        builders,
-        zoom,
-        pixelsPerTile,
-        fills,
-        lines,
-        into,
-        through,
-      ),
-      OsmRelation() => _relation(
-        element,
-        data,
-        builders,
-        zoom,
-        pixelsPerTile,
-        fills,
-        lines,
-        into,
-      ),
+      OsmWay() => _way(element, data, builders, zoom, into, through),
+      OsmRelation() => _relation(element, data, builders, zoom, into),
       _ => _Outcome.skipped,
     };
     switch (built) {
@@ -148,16 +127,10 @@ _Outcome _way(
   OsmSubset data,
   Map<TileId, _TileBuilder> builders,
   int zoom,
-  double pixelsPerTile,
-  bool fills,
-  bool lines,
   TileId? into,
   int Function(int nodeId) waysThrough,
 ) {
   final asArea = way.isClosed && enclosesArea(way.tags);
-  // An area is a fill and an edge around it, so it has something to build in
-  // either pass.
-  if (asArea ? !fills && !lines : !lines) return _Outcome.skipped;
   final layers = asArea ? fillLayersFor(way.tags) : lineLayersFor(way.tags);
   if (layers.isEmpty) return _Outcome.skipped;
 
@@ -167,23 +140,11 @@ _Outcome _way(
   if (asArea) {
     final area = data.areaOf(way);
     if (area == null) return _Outcome.incomplete;
-    return _fill(
-      area,
-      layers,
-      builders,
-      zoom,
-      pixelsPerTile,
-      fills,
-      lines,
-      into,
-    );
+    return _fill(area, layers, builders, zoom, into);
   }
 
   final tile = into ?? _tileOf(nodes.first, zoom);
-  final builder = builders.putIfAbsent(
-    tile,
-    () => _TileBuilder(tile, pixelsPerTile),
-  );
+  final builder = builders.putIfAbsent(tile, () => _TileBuilder(tile));
   final points = _project(nodes, tile);
   for (final layer in layers) {
     builder.stroke(layer, points);
@@ -194,7 +155,7 @@ _Outcome _way(
   for (var i = 0; i < way.nodeIds.length; i++) {
     final ends = i == 0 || i == way.nodeIds.length - 1;
     if (!ends && waysThrough(way.nodeIds[i]) < 2) continue;
-    builder.point(points[i * 2], points[i * 2 + 1]);
+    builder.point(way.nodeIds[i], points[i * 2], points[i * 2 + 1]);
   }
   return _Outcome.drawn;
 }
@@ -204,19 +165,15 @@ _Outcome _relation(
   OsmSubset data,
   Map<TileId, _TileBuilder> builders,
   int zoom,
-  double pixelsPerTile,
-  bool fills,
-  bool lines,
   TileId? into,
 ) {
-  if (!fills && !lines) return _Outcome.skipped;
   if (relation.tags['type'] != 'multipolygon') return _Outcome.skipped;
   final layers = fillLayersFor(relation.tags);
   if (layers.isEmpty) return _Outcome.skipped;
 
   final area = data.areaOf(relation);
   if (area == null) return _Outcome.incomplete;
-  return _fill(area, layers, builders, zoom, pixelsPerTile, fills, lines, into);
+  return _fill(area, layers, builders, zoom, into);
 }
 
 _Outcome _fill(
@@ -224,9 +181,6 @@ _Outcome _fill(
   List<int> layers,
   Map<TileId, _TileBuilder> builders,
   int zoom,
-  double pixelsPerTile,
-  bool fills,
-  bool lines,
   TileId? into,
 ) {
   if (area.polygons.isEmpty) return _Outcome.incomplete;
@@ -234,15 +188,11 @@ _Outcome _fill(
   for (final polygon in area.polygons) {
     if (polygon.outer.isEmpty) continue;
     final tile = into ?? _tileOf(polygon.outer.first, zoom);
-    final builder = builders.putIfAbsent(
-      tile,
-      () => _TileBuilder(tile, pixelsPerTile),
-    );
+    final builder = builders.putIfAbsent(tile, () => _TileBuilder(tile));
     final outer = _project(polygon.outer, tile);
     final inners = [for (final inner in polygon.inners) _project(inner, tile)];
     for (final layer in layers) {
-      if (fills) builder.fill(layer, outer, inners);
-      if (!lines) continue;
+      builder.fill(layer, outer, inners);
       final edge = areaEdgeLayer(layer);
       if (edge == null) continue;
       builder.stroke(edge, _ring(outer));
@@ -302,15 +252,13 @@ int Function(int) _countWithin(OsmSubset data) {
 /// so that the whole layer can go to the GPU in one call.
 class _TileBuilder {
   final TileId tile;
-  final double pixelsPerTile;
   final _fills = <int, List<double>>{};
-  final _lines = <int, List<double>>{};
+  final _lineAnchors = <int, List<double>>{};
+  final _lineOffsets = <int, List<double>>{};
+  final _points = <double>[];
+  final _marked = <int>{};
 
-  _TileBuilder(this.tile, this.pixelsPerTile);
-
-  /// How many tile units a pixel covers, which is how a width on screen
-  /// becomes a width in the triangles.
-  double get unitsPerPixel => tileExtent / pixelsPerTile;
+  _TileBuilder(this.tile);
 
   void fill(int layer, List<double> outer, List<List<double>> inners) {
     final triangles = triangulate(outer, holes: inners);
@@ -318,45 +266,46 @@ class _TileBuilder {
     (_fills[layer] ??= <double>[]).addAll(triangles);
   }
 
-  /// Marks a point that can be taken hold of.
-  void point(double x, double y) {
-    for (final layer in pointLayers) {
-      final triangles = disc(
-        x,
-        y,
-        mapStyle[layer].width * unitsPerPixel,
-        unitsPerPixel: unitsPerPixel,
-      );
-      if (triangles.isEmpty) continue;
-      (_lines[layer] ??= <double>[]).addAll(triangles);
-    }
+  /// Marks a node as a point that can be taken hold of.
+  ///
+  /// Once however many lines it ends or joins: the mark is the same picture
+  /// in the same place, and a second one is only a second draw.
+  void point(int node, double x, double y) {
+    if (!_marked.add(node)) return;
+    _points
+      ..add(x)
+      ..add(y);
   }
 
   void stroke(int layer, List<double> points) {
     final style = mapStyle[layer];
-    final triangles = strokePolyline(
+    final triangles = strokeAnchored(
       points,
-      style.width * unitsPerPixel,
+      style.width,
       cap: style.cap,
       join: style.join,
-      unitsPerPixel: unitsPerPixel,
     );
     if (triangles.isEmpty) return;
-    (_lines[layer] ??= <double>[]).addAll(triangles);
+    (_lineAnchors[layer] ??= <double>[]).addAll(triangles.anchors);
+    (_lineOffsets[layer] ??= <double>[]).addAll(triangles.offsets);
   }
 
   TileMesh build() => TileMesh(
     id: tile,
-    pixelsPerTile: pixelsPerTile,
-    fills: _meshes(_fills),
-    lines: _meshes(_lines),
+    fills: [
+      for (final layer in _fills.keys.toList()..sort())
+        LayerMesh(layer, Float32List.fromList(_fills[layer]!)),
+    ],
+    lines: [
+      for (final layer in _lineAnchors.keys.toList()..sort())
+        LineLayerMesh(
+          layer,
+          AnchoredTriangles(
+            Float32List.fromList(_lineAnchors[layer]!),
+            Float32List.fromList(_lineOffsets[layer]!),
+          ),
+        ),
+    ],
+    points: Float32List.fromList(_points),
   );
-
-  static List<LayerMesh> _meshes(Map<int, List<double>> layers) {
-    final order = layers.keys.toList()..sort();
-    return [
-      for (final layer in order)
-        LayerMesh(layer, Float32List.fromList(layers[layer]!)),
-    ];
-  }
 }

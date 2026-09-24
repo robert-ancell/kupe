@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:osm/osm.dart';
 
 import '../account/account.dart';
@@ -19,7 +18,7 @@ import '../edit/ways.dart';
 import '../imagery/imagery_layer.dart';
 import '../geometry/tile.dart';
 import '../render/map_painter.dart';
-import '../render/tile_mesh.dart';
+import '../render/node_sprite.dart';
 import 'camera.dart';
 import 'frame_stats.dart';
 import 'pick.dart';
@@ -155,8 +154,12 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   );
   OsmImagery? _source;
   ImageryLayer<ui.Image>? _imagery;
-  final _uploaded = <TileId, _Uploaded>{};
-  var _restroking = false;
+  final _uploaded = <TileId, GpuTileMesh>{};
+
+  /// What the points a line can be taken hold of by are drawn with, made for
+  /// the screen's density once it is known.
+  NodeSprite? _nodeSprite;
+  double? _spriteRatio;
   final _stats = FrameStats();
   Timer? _settle;
   Timer? _check;
@@ -348,54 +351,55 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _loader.dispose();
     _imagery?.dispose();
     for (final held in _uploaded.values) {
-      held.gpu.dispose();
+      held.dispose();
     }
+    _nodeSprite?.dispose();
     _stats.dispose();
     _comment.dispose();
     super.dispose();
   }
 
-  /// The tiles as the engine holds them, uploading what is new and replacing
-  /// the lines of anything that has been built again.
+  /// The tiles as the engine holds them, uploading what is new, replacing
+  /// what has been built again, and letting go of what the loader no longer
+  /// holds.
   List<GpuTileMesh> get _meshes {
+    final tiles = _loader.tiles;
     final meshes = <GpuTileMesh>[];
-    for (final tile in _loader.tiles) {
+    for (final tile in tiles) {
       var held = _uploaded[tile.id];
-      if (held == null) {
-        held = _Uploaded(tile, GpuTileMesh.of(tile));
+      if (held == null || !identical(held.source, tile)) {
+        held?.dispose();
+        held = GpuTileMesh.of(tile);
         _uploaded[tile.id] = held;
-      } else if (!identical(held.source, tile)) {
-        // Rebuilding widths leaves the filled shapes untouched and hands
-        // back the same list, so only the lines go up again.
-        if (identical(held.source.fills, tile.fills)) {
-          held.gpu.restroke(tile);
-          held.source = tile;
-        } else {
-          held.gpu.dispose();
-          held = _Uploaded(tile, GpuTileMesh.of(tile));
-          _uploaded[tile.id] = held;
-        }
       }
-      meshes.add(held.gpu);
+      meshes.add(held);
+    }
+    if (_uploaded.length > tiles.length) {
+      final kept = {for (final tile in tiles) tile.id};
+      _uploaded.removeWhere((id, held) {
+        if (kept.contains(id)) return false;
+        held.dispose();
+        return true;
+      });
     }
     return meshes;
   }
 
-  /// Catches the line widths up with the zoom, a few tiles at a time.
-  ///
-  /// Zooming stretches lines that were built for another zoom. Rebuilding
-  /// every tile on screen at once would drop a frame, so it is done between
-  /// frames until there is nothing stale left.
-  void _restrokeSoon() {
-    if (_restroking) return;
-    _restroking = true;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      _restroking = false;
-      if (!mounted) return;
-      final more = _loader.restroke();
-      setState(() {});
-      if (more) _restrokeSoon();
-    });
+  /// Makes the picture points are drawn with, for the density of the screen
+  /// the map is on, and again if it moves to one of another.
+  void _makeSprite(double pixelRatio) {
+    if (_spriteRatio == pixelRatio) return;
+    _spriteRatio = pixelRatio;
+    unawaited(
+      NodeSprite.create(pixelRatio).then((sprite) {
+        if (!mounted || _spriteRatio != pixelRatio) {
+          sprite.dispose();
+          return;
+        }
+        _nodeSprite?.dispose();
+        setState(() => _nodeSprite = sprite);
+      }),
+    );
   }
 
   /// Asks for what is on screen once the map has stopped moving.
@@ -427,7 +431,6 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _chooseImagery(camera);
     _imagery?.look(camera, _size);
     _lookSoon();
-    _restrokeSoon();
   }
 
   /// Picks the imagery to draw where the map is looking.
@@ -891,6 +894,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    _makeSprite(MediaQuery.devicePixelRatioOf(context));
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = constraints.biggest;
@@ -1039,6 +1043,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                                 ghostNode: _ghostNode(size),
                                 selection: _selected.values.toList(),
                                 highlight: _hovered,
+                                nodeSprite: _nodeSprite,
                                 onDrawn: (calls) => _drawCalls = calls,
                               ),
                               size: Size.infinite,
@@ -1401,14 +1406,6 @@ class _Tags extends StatelessWidget {
       ),
     );
   }
-}
-
-/// A tile's triangles, and the copy of them the engine holds.
-class _Uploaded {
-  TileMesh source;
-  final GpuTileMesh gpu;
-
-  _Uploaded(this.source, this.gpu);
 }
 
 /// Asks for the last change to be put back.

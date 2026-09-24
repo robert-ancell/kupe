@@ -6,6 +6,8 @@ import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/map/pick.dart';
 import 'package:kupe/src/render/map_painter.dart';
+import 'package:kupe/src/render/node_sprite.dart';
+import 'package:kupe/src/render/stroke.dart';
 import 'package:kupe/src/render/tile_mesh.dart';
 import 'package:kupe/src/style/style.dart';
 import 'package:osm/osm.dart';
@@ -25,25 +27,32 @@ class _Recorder implements Canvas {
   }
 }
 
-const _tile = TileId(16, 64583, 39992);
-
 final _camera = Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17);
 
 /// One tile holding a single stroked layer, so that the map has something in
 /// it to be drawn over and under.
-GpuTileMesh _mesh() => GpuTileMesh.of(
-  TileMesh(
-    id: _tile,
-    pixelsPerTile: 512,
-    fills: const [],
-    lines: [
-      LayerMesh(
-        layerIndex('minor'),
-        Float32List.fromList([0, 0, 100, 0, 100, 100]),
-      ),
-    ],
-  ),
-);
+///
+/// Through the middle of the view: a tile is only drawn if what it holds is
+/// on screen.
+GpuTileMesh _mesh({double latitude = -36.85, double longitude = 174.76}) {
+  final tile = TileId.at(16, latitude, longitude);
+  final x = (Mercator.x(longitude) - tile.worldX) * tileExtent / tile.size;
+  final y = (Mercator.y(latitude) - tile.worldY) * tileExtent / tile.size;
+  return GpuTileMesh.of(
+    TileMesh(
+      id: tile,
+      fills: const [],
+      lines: [
+        LineLayerMesh(
+          layerIndex('minor'),
+          strokeAnchored([x - 100, y, x + 100, y], 3),
+        ),
+      ],
+      // Its two ends, which are what a line is taken hold of by.
+      points: Float32List.fromList([x - 100, y, x + 100, y]),
+    ),
+  );
+}
 
 PickedWay _way() => const PickedWay(
   way: OsmWay(id: 1, nodeIds: [1, 2], tags: {'highway': 'residential'}),
@@ -122,5 +131,63 @@ void main() {
       MapPainter(camera: _camera, tiles: [_mesh()], highlight: _way()),
     );
     expect(calls.first, 'drawRect');
+  });
+
+  testWidgets('draws every point of a tile in one call, over its lines', (
+    tester,
+  ) async {
+    final sprite = (await tester.runAsync(() => NodeSprite.create(1)))!;
+    addTearDown(sprite.dispose);
+    final calls = _drawnBy(
+      MapPainter(camera: _camera, tiles: [_mesh()], nodeSprite: sprite),
+    );
+    expect(calls.where((call) => call == 'drawRawAtlas'), hasLength(1));
+    expect(
+      calls.indexOf('drawRawAtlas'),
+      greaterThan(calls.lastIndexOf('drawVertices')),
+    );
+  });
+
+  test('draws no points until there is a picture to draw them with', () {
+    final calls = _drawnBy(MapPainter(camera: _camera, tiles: [_mesh()]));
+    expect(calls, isNot(contains('drawRawAtlas')));
+    expect(calls, contains('drawVertices'));
+  });
+
+  test('leaves out a tile with nothing on screen', () {
+    final calls = _drawnBy(
+      MapPainter(
+        camera: _camera,
+        tiles: [_mesh(latitude: 51.5, longitude: -0.12)],
+      ),
+    );
+    expect(calls, isNot(contains('drawVertices')));
+  });
+
+  test('places the lines again for a zoom, and not for a pan', () {
+    final mesh = _mesh();
+    final placed = mesh.linesAt(1);
+    expect(identical(mesh.linesAt(1), placed), isTrue);
+    expect(identical(mesh.linesAt(2), placed), isFalse);
+  });
+
+  test('draws a tile off screen whose road runs onto it', () {
+    // A way goes in the tile its first node is in and is not cut at the
+    // edge, so a road starting two tiles west still reaches the middle.
+    final here = TileId.at(16, -36.85, 174.76);
+    final west = TileId(16, here.x - 2, here.y);
+    final x = (Mercator.x(174.76) - west.worldX) * tileExtent / west.size;
+    final y = (Mercator.y(-36.85) - west.worldY) * tileExtent / west.size;
+    final mesh = GpuTileMesh.of(
+      TileMesh(
+        id: west,
+        fills: const [],
+        lines: [
+          LineLayerMesh(layerIndex('minor'), strokeAnchored([100, y, x, y], 3)),
+        ],
+      ),
+    );
+    final calls = _drawnBy(MapPainter(camera: _camera, tiles: [mesh]));
+    expect(calls, contains('drawVertices'));
   });
 }

@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:kupe/src/geometry/tile.dart';
 import 'package:kupe/src/render/tessellate.dart';
+import 'package:kupe/src/render/tile_mesh.dart';
 import 'package:kupe/src/style/style.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
@@ -24,7 +27,13 @@ OsmSubset _way(Map<String, String> tags, {double latitude = _latitude}) {
   );
 }
 
-/// How far the triangles of [layer] reach across the line, in pixels.
+/// Where the triangles of a line layer are when a tile is [pixelsPerTile]
+/// across on screen.
+Float32List _placed(LineLayerMesh mesh, double pixelsPerTile) =>
+    mesh.triangles.at(tileExtent / pixelsPerTile);
+
+/// How far the triangles of [layer] reach across the line, in pixels, when
+/// a tile is [pixelsPerTile] across on screen.
 double _pixelWidth(
   TessellationReport report,
   String layer, {
@@ -34,11 +43,12 @@ double _pixelWidth(
   var minY = double.maxFinite;
   var maxY = -double.maxFinite;
   for (final tile in report.tiles.values) {
-    for (final mesh in [...tile.fills, ...tile.lines]) {
+    for (final mesh in tile.lines) {
       if (mesh.layer != wanted) continue;
-      for (var i = 1; i < mesh.triangles.length; i += 2) {
-        minY = mesh.triangles[i] < minY ? mesh.triangles[i] : minY;
-        maxY = mesh.triangles[i] > maxY ? mesh.triangles[i] : maxY;
+      final triangles = _placed(mesh, pixelsPerTile);
+      for (var i = 1; i < triangles.length; i += 2) {
+        minY = triangles[i] < minY ? triangles[i] : minY;
+        maxY = triangles[i] > maxY ? triangles[i] : maxY;
       }
     }
   }
@@ -49,18 +59,8 @@ double _pixelWidth(
 TessellationReport _build(
   OsmSubset data, {
   int zoom = 16,
-  double pixelsPerTile = _pixelsPerTile,
-  bool fills = true,
-  bool lines = true,
   int Function(int nodeId)? waysThrough,
-}) => tessellate(
-  data,
-  zoom: zoom,
-  pixelsPerTile: pixelsPerTile,
-  fills: fills,
-  lines: lines,
-  waysThrough: waysThrough,
-);
+}) => tessellate(data, zoom: zoom, waysThrough: waysThrough);
 
 void main() {
   test('draws a road the width the style asks for', () {
@@ -108,30 +108,16 @@ void main() {
   });
 
   test('draws the same width however large the tile is on screen', () {
-    // Which is the whole point of building it again: the triangles differ,
-    // what they come to on screen does not.
-    for (final pixels in [256.0, 512.0, 2048.0]) {
+    // From one build: the same triangles, placed for each size, come to the
+    // same width on screen at every one of them.
+    final report = _build(_way(const {'highway': 'residential'}));
+    for (final pixels in [64.0, 256.0, 512.0, 2048.0, 16384.0]) {
       expect(
-        _pixelWidth(
-          _build(_way(const {'highway': 'residential'}), pixelsPerTile: pixels),
-          'minor',
-          pixelsPerTile: pixels,
-        ),
+        _pixelWidth(report, 'minor', pixelsPerTile: pixels),
         closeTo(mapStyle[layerIndex('minor')].width, 0.05),
         reason: 'at $pixels pixels a tile',
       );
     }
-  });
-
-  test('says what it was built for, so it can be told when it is stale', () {
-    final report = _build(_way(const {'highway': 'residential'}));
-    expect(report.tiles.values.single.pixelsPerTile, _pixelsPerTile);
-  });
-
-  test('builds only the lines when only the lines are wanted', () {
-    final report = _build(_way(const {'highway': 'residential'}), fills: false);
-    expect(report.tiles.values.single.lines, isNotEmpty);
-    expect(report.tiles.values.single.fills, isEmpty);
   });
 
   test('stops a way exactly at its last node', () {
@@ -139,9 +125,10 @@ void main() {
     final report = _build(_way(const {'highway': 'residential'}));
     final tile = report.tiles.values.single;
     final mesh = tile.lines.firstWhere((m) => m.layer == layerIndex('minor'));
+    final triangles = _placed(mesh, _pixelsPerTile);
     var maxX = -double.maxFinite;
-    for (var i = 0; i < mesh.triangles.length; i += 2) {
-      maxX = mesh.triangles[i] > maxX ? mesh.triangles[i] : maxX;
+    for (var i = 0; i < triangles.length; i += 2) {
+      maxX = triangles[i] > maxX ? triangles[i] : maxX;
     }
     final end =
         (Mercator.x(174.7610) - tile.id.worldX) * tileExtent / tile.id.size;
@@ -175,21 +162,6 @@ void main() {
     expect(tile.fills.map((m) => m.layer), contains(layerIndex('building')));
     // Its edge, and nothing from the layers a road would be drawn in.
     expect(tile.lines.map((m) => m.layer), [layerIndex('building-edge')]);
-
-    // The edge is a fixed width on screen, so a rebuild for a new zoom has
-    // to produce it again even though the fill it goes around is kept.
-    final restroked = _build(
-      OsmSubset(
-        matches: const [way],
-        nodes: {for (final node in nodes) node.id: node},
-        ways: const {10: way},
-        relations: const {},
-      ),
-      fills: false,
-    );
-    expect(restroked.tiles.values.single.lines.map((m) => m.layer), [
-      layerIndex('building-edge'),
-    ]);
   });
 
   group('points that can be taken hold of', () {
@@ -231,31 +203,9 @@ void main() {
       );
     }
 
-    /// How many discs were drawn, from the area of the marks divided by the
-    /// area of one.
-    int marksIn(TessellationReport report) {
-      var area = 0.0;
-      for (final tile in report.tiles.values) {
-        for (final mesh in tile.lines) {
-          if (mesh.layer != layerIndex('vertex')) continue;
-          final t = mesh.triangles;
-          for (var i = 0; i < t.length; i += 6) {
-            area +=
-                ((t[i + 2] - t[i]) * (t[i + 5] - t[i + 1]) -
-                        (t[i + 4] - t[i]) * (t[i + 3] - t[i + 1]))
-                    .abs() /
-                2;
-          }
-        }
-      }
-      final units =
-          mapStyle[layerIndex('vertex')].width /
-          2 *
-          tileExtent /
-          _pixelsPerTile;
-      // A little under a circle, being made of straight pieces.
-      return (area / (3.0 * units * units)).round();
-    }
+    /// How many points were marked.
+    int marksIn(TessellationReport report) =>
+        report.tiles.values.fold(0, (total, tile) => total + tile.pointCount);
 
     test('marks where a line starts and stops', () {
       expect(marksIn(_build(road())), 2);
