@@ -10,6 +10,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:osm/osm.dart';
 
+import '../account/account.dart';
+import '../account/sign_in_dialog.dart';
+import '../account/upload_dialog.dart';
 import '../data/map_loader.dart';
 import '../edit/edited_geometry.dart';
 import '../edit/insert.dart';
@@ -89,6 +92,12 @@ class MapView extends StatefulWidget {
   /// Where to remember the place the map was left.
   final File? place;
 
+  /// Where the token an edit is uploaded with is kept between runs.
+  ///
+  /// Null where there is nowhere to keep one, in which case signing in lasts
+  /// only as long as the editor is open.
+  final File? account;
+
   /// The layers of imagery to choose from.
   ///
   /// A listenable rather than a list, because the index is a megabyte off the
@@ -113,6 +122,7 @@ class MapView extends StatefulWidget {
     required this.initialCamera,
     this.cache,
     this.place,
+    this.account,
     this.imageryIndex,
     this.imageryCache,
     this.imageryFetch,
@@ -156,6 +166,16 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   double? _easeFrom;
   double? _easeTo;
 
+  /// Who an edit would be made as.
+  Account _account = const Account();
+
+  /// What the changeset would be called, kept here so that a comment typed
+  /// and then thought better of is still there next time.
+  final _comment = TextEditingController();
+
+  /// The changeset last uploaded, for the line saying it went.
+  int? _sent;
+
   /// What a click does next.
   MapTool _tool = MapTool.browse;
 
@@ -189,6 +209,52 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   void initState() {
     super.initState();
     widget.imageryIndex?.addListener(_indexChanged);
+    unawaited(
+      Account.read(widget.account).then((account) {
+        if (mounted) setState(() => _account = account);
+      }),
+    );
+  }
+
+  /// Opens the account window, and keeps whatever it came back with.
+  Future<void> _showAccount() async {
+    final account = await showSignInDialog(context, account: _account);
+    if (account == null || !mounted) return;
+    await account.write(widget.account);
+    if (!mounted) return;
+    setState(() => _account = account);
+  }
+
+  /// Shows what would be sent and, if it is agreed to, sends it.
+  ///
+  /// What is on screen afterwards is a version behind what OpenStreetMap now
+  /// holds — the new elements have real ids, and the changed ones a new
+  /// version — so everything read is thrown away and asked for again. That
+  /// is a few boxes off the network, and the alternative is an editor whose
+  /// next change is made against a version that no longer exists.
+  Future<void> _upload() async {
+    final token = _account.token;
+    if (token == null) {
+      await _showAccount();
+      return;
+    }
+    final uploader = OsmUploader(token: token, generator: kupeGenerator);
+    final changeset = await showUploadDialog(
+      context,
+      upload: OsmUpload.of(_edits),
+      comment: _comment,
+      send: (comment) => uploader.send(OsmUpload.of(_edits), comment: comment),
+    );
+    uploader.close();
+    if (changeset == null || !mounted) return;
+    setState(() {
+      _edits.undoAll();
+      _selected.clear();
+      _hovered = null;
+      _comment.clear();
+      _sent = changeset;
+    });
+    await _loader.reread();
   }
 
   /// Whether the map is too far out to edit.
@@ -237,6 +303,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       held.gpu.dispose();
     }
     _stats.dispose();
+    _comment.dispose();
     super.dispose();
   }
 
@@ -922,18 +989,33 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                             ),
                           ),
                         ),
-                        if (!_tooFarToEdit)
-                          Positioned(
-                            right: 12,
-                            top: 12,
-                            child: _Tools(
-                              tool: _tool,
-                              onChanged: (tool) => setState(() {
-                                _drawing.clear();
-                                _tool = _tool == tool ? MapTool.browse : tool;
-                              }),
-                            ),
+                        Positioned(
+                          right: 12,
+                          top: 12,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              _AccountBar(
+                                account: _account,
+                                changes: OsmUpload.of(_edits).length,
+                                onAccount: _showAccount,
+                                onUpload: _upload,
+                              ),
+                              if (!_tooFarToEdit) ...[
+                                const SizedBox(height: 12),
+                                _Tools(
+                                  tool: _tool,
+                                  onChanged: (tool) => setState(() {
+                                    _drawing.clear();
+                                    _tool = _tool == tool
+                                        ? MapTool.browse
+                                        : tool;
+                                  }),
+                                ),
+                              ],
+                            ],
                           ),
+                        ),
                         if (_tooFarToEdit)
                           Positioned.fill(
                             child: Center(
@@ -945,6 +1027,18 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                             left: 12,
                             bottom: 12,
                             child: _Tags(selected: _selected.values.toList()),
+                          ),
+                        if (_sent case final changeset?)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 40,
+                            child: Center(
+                              child: _Sent(
+                                changeset: changeset,
+                                onDismissed: () => setState(() => _sent = null),
+                              ),
+                            ),
                           ),
                         if (_source?.attribution case final credit?)
                           Positioned(
@@ -1288,6 +1382,83 @@ class _ToolIntent extends Intent {
   final MapTool tool;
 
   const _ToolIntent(this.tool);
+}
+
+/// Who an edit would be made as, and the button that sends one.
+///
+/// Always on screen, even zoomed out past editing: what it says is who the
+/// editor is, which is worth knowing before a change is made rather than
+/// after one is ready to go.
+class _AccountBar extends StatelessWidget {
+  final Account account;
+  final int changes;
+  final VoidCallback onAccount;
+  final VoidCallback onUpload;
+
+  const _AccountBar({
+    required this.account,
+    required this.changes,
+    required this.onAccount,
+    required this.onUpload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (changes > 0) ...[
+          _ToolButton(
+            icon: Icons.cloud_upload,
+            label: 'Upload $changes',
+            chosen: true,
+            onPressed: onUpload,
+          ),
+          const SizedBox(width: 6),
+        ],
+        _ToolButton(
+          icon: account.isSignedIn ? Icons.person : Icons.person_outline,
+          label: account.user ?? 'Sign in',
+          chosen: false,
+          onPressed: onAccount,
+        ),
+      ],
+    );
+  }
+}
+
+/// That a changeset went, with a way to go and look at it.
+class _Sent extends StatelessWidget {
+  final int changeset;
+  final VoidCallback onDismissed;
+
+  const _Sent({required this.changeset, required this.onDismissed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xee2b3036),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SelectableText(
+              'Uploaded as changeset $changeset',
+              style: const TextStyle(fontSize: 12, color: Color(0xffffffff)),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 16),
+              color: const Color(0xffffffff),
+              onPressed: onDismissed,
+              tooltip: 'Dismiss',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// The buttons that say what a click does next.

@@ -59,6 +59,7 @@ Future<void> main(List<String> arguments) async {
   OsmImageryCache? imagery;
   File? place;
   File? indexFile;
+  File? accountFile;
   try {
     final directory = await getApplicationCacheDirectory();
     cache = await OsmTileCache.open(Directory('${directory.path}/tiles'));
@@ -67,10 +68,17 @@ Future<void> main(List<String> arguments) async {
     );
     place = File('${directory.path}/last-place.json');
     indexFile = File('${directory.path}/editor-layer-index.geojson');
+    // Not in the cache: a token is a key to somebody's OpenStreetMap
+    // account, and a cache is a thing anything is entitled to empty.
+    accountFile = File(
+      '${(await getApplicationSupportDirectory()).path}'
+      '/account.json',
+    );
   } on Exception {
     cache = null;
     imagery = null;
     place = null;
+    accountFile = null;
   }
 
   // The map opens on the one layer built in and takes the full list when it
@@ -101,6 +109,7 @@ Future<void> main(List<String> arguments) async {
           ),
       cache: cache,
       place: place,
+      account: accountFile,
       imageryCache: imagery,
       imageryIndex: index,
       imageryFetch: imageryFetch,
@@ -119,6 +128,9 @@ class KupeApp extends StatelessWidget {
   /// Where the place the map was left is remembered.
   final File? place;
 
+  /// Where the token an edit is uploaded with is kept.
+  final File? account;
+
   /// Where imagery tiles are kept between runs.
   final OsmImageryCache? imageryCache;
 
@@ -134,6 +146,7 @@ class KupeApp extends StatelessWidget {
     required this.camera,
     this.cache,
     this.place,
+    this.account,
     this.imageryCache,
     this.imageryIndex,
     this.imageryFetch,
@@ -152,6 +165,7 @@ class KupeApp extends StatelessWidget {
           initialCamera: camera,
           cache: cache,
           place: place,
+          account: account,
           imageryCache: imageryCache,
           imageryIndex: imageryIndex,
           imageryFetch: imageryFetch,

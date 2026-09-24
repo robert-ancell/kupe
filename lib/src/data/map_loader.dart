@@ -344,6 +344,23 @@ class MapLoader {
     look(camera, _size);
   }
 
+  /// Forgets everything read, and reads what is on screen again.
+  ///
+  /// For after an upload. What is held is then a version behind what
+  /// OpenStreetMap has — the new elements have real ids and the changed ones
+  /// a new version — and a later change made against a version that no
+  /// longer exists is refused by the API. A few boxes off the network is the
+  /// cheaper of the two.
+  Future<void> reread() async {
+    for (final tile in _built.keys.toList()) {
+      await _invalidate(tile);
+    }
+    _hidden = <(OsmElementType, int)>{};
+    final camera = _camera;
+    if (camera != null) look(camera, _size);
+    onChanged();
+  }
+
   /// Forgets a box so that it is read again from the start.
   ///
   /// What it drew is taken back first. An answer says what is there and never
