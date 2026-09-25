@@ -252,7 +252,7 @@ void main() {
     });
 
     test('keeps what it read for next time', () async {
-      final cache = await OsmTileCache.open(work);
+      final cache = await OsmTileCache.open(directory: work);
       final server = _Api();
       _loaderOn(server, cache: cache).look(_at(17), _size);
       await _drain();
@@ -260,14 +260,14 @@ void main() {
     });
 
     test('opens from disk without asking the API', () async {
-      final cache = await OsmTileCache.open(work);
+      final cache = await OsmTileCache.open(directory: work);
       final first = _Api();
       _loaderOn(first, cache: cache).look(_at(17), _size);
       await _drain();
       expect(first.asked, isNotEmpty);
 
       // A second run over the same place, with the cache still there.
-      final again = await OsmTileCache.open(work);
+      final again = await OsmTileCache.open(directory: work);
       final second = _Api();
       final loader = _loaderOn(second, cache: again);
       loader.look(_at(17), _size);
@@ -290,7 +290,7 @@ void main() {
     });
 
     test('reads a box again when its file will not open', () async {
-      final cache = await OsmTileCache.open(work);
+      final cache = await OsmTileCache.open(directory: work);
       final first = _Api();
       _loaderOn(first, cache: cache).look(_at(17), _size);
       await _drain();
@@ -302,7 +302,7 @@ void main() {
         }
       }
 
-      final again = await OsmTileCache.open(work);
+      final again = await OsmTileCache.open(directory: work);
       final second = _Api();
       final loader = _loaderOn(second, cache: again);
       loader.look(_at(17), _size);

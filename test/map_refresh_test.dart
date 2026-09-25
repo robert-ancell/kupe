@@ -125,7 +125,7 @@ Future<OsmTileCache> _aged(Directory work) async {
     (tile as Map<String, dynamic>)['at'] = long;
   }
   await index.writeAsString(jsonEncode(parsed));
-  return OsmTileCache.open(work);
+  return OsmTileCache.open(directory: work);
 }
 
 void main() {
@@ -141,7 +141,7 @@ void main() {
 
   /// Reads a view into a cache and hands back the cache, aged.
   Future<OsmTileCache> fill(_Api server) async {
-    final cache = await OsmTileCache.open(work);
+    final cache = await OsmTileCache.open(directory: work);
     MapLoader(
       api: OsmApi(fetch: server.fetch),
       cache: cache,
@@ -153,7 +153,7 @@ void main() {
 
   test('does not check anything while what it holds is new', () async {
     final server = _Api();
-    final cache = await OsmTileCache.open(work);
+    final cache = await OsmTileCache.open(directory: work);
     final loader = MapLoader(
       api: OsmApi(fetch: server.fetch),
       cache: cache,

@@ -286,7 +286,7 @@ void main() {
     });
 
     test('keeps what it fetched for next time', () async {
-      final cache = await OsmImageryCache.open(work);
+      final cache = await OsmImageryCache.open(directory: work);
       final server = _Server();
       _layer(server, cache: cache).look(_at(17), _size);
       await _drain();
@@ -294,13 +294,13 @@ void main() {
     });
 
     test('draws from disk without asking for anything', () async {
-      final cache = await OsmImageryCache.open(work);
+      final cache = await OsmImageryCache.open(directory: work);
       final first = _Server();
       _layer(first, cache: cache).look(_at(17), _size);
       await _drain();
       expect(first.asked, isNotEmpty);
 
-      final again = await OsmImageryCache.open(work);
+      final again = await OsmImageryCache.open(directory: work);
       final second = _Server();
       final layer = _layer(second, cache: again);
       final camera = _at(17);
@@ -314,7 +314,7 @@ void main() {
     });
 
     test('remembers empty ground between runs', () async {
-      final cache = await OsmImageryCache.open(work);
+      final cache = await OsmImageryCache.open(directory: work);
       final camera = _at(17);
       final first = _Server();
       for (final tile in camera.tilesFor(_size, 17)) {
@@ -323,7 +323,7 @@ void main() {
       _layer(first, cache: cache).look(camera, _size);
       await _drain();
 
-      final again = await OsmImageryCache.open(work);
+      final again = await OsmImageryCache.open(directory: work);
       final second = _Server();
       _layer(second, cache: again).look(camera, _size);
       await _drain();
@@ -331,7 +331,7 @@ void main() {
     });
 
     test('draws an old tile while fetching a newer one', () async {
-      final cache = await OsmImageryCache.open(work);
+      final cache = await OsmImageryCache.open(directory: work);
       final first = _Server();
       _layer(first, cache: cache).look(_at(17), _size);
       await _drain();
@@ -347,7 +347,7 @@ void main() {
           '"at":$long',
         ),
       );
-      final aged = await OsmImageryCache.open(work);
+      final aged = await OsmImageryCache.open(directory: work);
       final second = _Server()..hold = true;
       final layer = _layer(second, cache: aged);
       final camera = _at(17);

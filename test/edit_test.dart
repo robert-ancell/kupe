@@ -125,7 +125,7 @@ void main() {
     addTearDown(() async => work.delete(recursive: true));
 
     final edits = OsmEdits();
-    final cache = await OsmTileCache.open(work);
+    final cache = await OsmTileCache.open(directory: work);
     final loader = await _loaded(edits, cache: cache);
     final node = _someNode(loader);
     final before = cache.tiles.map((t) => '${t.id}:${t.bytes}').toList();

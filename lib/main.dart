@@ -55,23 +55,19 @@ Future<void> main(List<String> arguments) async {
   // and simply reads everything again each time.
   final imageryFetch = httpFetch(contact: contact, concurrency: 6);
 
-  OsmTileCache? cache;
-  OsmImageryCache? imagery;
+  OsmCache? cache;
   File? place;
-  File? indexFile;
-  Directory? presetsDirectory;
-  Directory? countriesDirectory;
   File? accountFile;
   try {
+    // Kupe's own, rather than the directory shared by everything using
+    // osm.dart: two programs at once would each write a tile cache's index
+    // over the other's.
     final directory = await getApplicationCacheDirectory();
-    cache = await OsmTileCache.open(Directory('${directory.path}/tiles'));
-    imagery = await OsmImageryCache.open(
-      Directory('${directory.path}/imagery'),
+    cache = await OsmCache.open(
+      directory: Directory('${directory.path}/osm'),
+      fetch: httpFetch(contact: contact),
     );
     place = File('${directory.path}/last-place.json');
-    indexFile = File('${directory.path}/editor-layer-index.geojson');
-    presetsDirectory = Directory('${directory.path}/presets');
-    countriesDirectory = Directory('${directory.path}/countries');
     // Not in the cache: a token is a key to somebody's OpenStreetMap
     // account, and a cache is a thing anything is entitled to empty.
     accountFile = File(
@@ -80,7 +76,6 @@ Future<void> main(List<String> arguments) async {
     );
   } on Exception {
     cache = null;
-    imagery = null;
     place = null;
     accountFile = null;
   }
@@ -89,13 +84,11 @@ Future<void> main(List<String> arguments) async {
   // arrives. Reading the index is a megabyte off the network, which is no
   // reason for the editor to show nothing at all until it is done.
   final index = ValueNotifier(const OsmImageryIndex([fallbackImagery]));
-  if (indexFile != null) {
+  if (cache != null) {
     unawaited(
-      OsmImageryIndexFile.read(
-        file: indexFile,
-        fetch: imageryFetch,
-        fallback: const [fallbackImagery],
-      ).then((read) => index.value = read),
+      cache.imageryIndex
+          .read(fallback: const [fallbackImagery])
+          .then((read) => index.value = read),
     );
   }
 
@@ -103,26 +96,16 @@ Future<void> main(List<String> arguments) async {
   // rather than a node. Half a megabyte off the network the first time and
   // off the disk after that; until it is in, things go by their ids.
   final presets = ValueNotifier<OsmPresets?>(null);
-  if (presetsDirectory != null) {
-    unawaited(
-      OsmPresetsFile.read(
-        directory: presetsDirectory,
-        fetch: httpFetch(contact: contact),
-      ).then((read) => presets.value = read),
-    );
+  if (cache != null) {
+    unawaited(cache.presets.read().then((read) => presets.value = read));
   }
 
   // Which country a place is in, which is what says which of the kinds of
   // thing that only exist in some countries apply here. Until it is in, only
   // the ones meant for everywhere do.
   final countries = ValueNotifier<OsmCountryCoder?>(null);
-  if (countriesDirectory != null) {
-    unawaited(
-      OsmCountryCoderFile.read(
-        directory: countriesDirectory,
-        fetch: httpFetch(contact: contact),
-      ).then((read) => countries.value = read),
-    );
+  if (cache != null) {
+    unawaited(cache.countryCoder.read().then((read) => countries.value = read));
   }
 
   final left = place == null ? null : await LastPlace.read(place);
@@ -137,10 +120,10 @@ Future<void> main(List<String> arguments) async {
             longitude: _somewhere.longitude,
             zoom: _somewhere.zoom,
           ),
-      cache: cache,
+      cache: cache?.tiles,
       place: place,
       account: accountFile,
-      imageryCache: imagery,
+      imageryCache: cache?.imagery,
       imageryIndex: index,
       imageryFetch: imageryFetch,
       presets: presets,
