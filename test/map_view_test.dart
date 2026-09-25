@@ -698,6 +698,34 @@ void main() {
       expect(find.textContaining('ctrl+z'), findsNothing);
     });
 
+    testWidgets('moves the node again when the change is redone', (
+      tester,
+    ) async {
+      await openOver(tester);
+      await _click(tester, const Offset(500, 400));
+      await tester.dragFrom(endOfRoad(tester), const Offset(40, 30));
+      await tester.pump();
+      await _undo(tester);
+      expect(_painterIn(tester).edited.isEmpty, isTrue);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(_painterIn(tester).edited.isEmpty, isFalse);
+      expect(find.text('1 change, ctrl+z to undo'), findsOneWidget);
+
+      // Ctrl+Y as well, once there is something to redo again.
+      await _undo(tester);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyY);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(_painterIn(tester).edited.isEmpty, isFalse);
+    });
+
     testWidgets('leaves nothing behind where the node started', (tester) async {
       await openOver(tester);
       await _click(tester, const Offset(500, 400));

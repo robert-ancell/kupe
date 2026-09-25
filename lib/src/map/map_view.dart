@@ -1039,6 +1039,17 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _refreshPicked();
   }
 
+  /// Makes the last change undone again.
+  ///
+  /// Not while moving or drawing: what was undone was undone from before
+  /// either started.
+  void _redo() {
+    if (_moving != null || _drawing.isNotEmpty) return;
+    if (!_editor.redo()) return;
+    _loader.editsChanged();
+    _refreshPicked();
+  }
+
   /// Brings what is pointed at and what is selected up to date with what has
   /// been changed.
   ///
@@ -1267,7 +1278,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final id = _drawing.removeLast();
     // Only if it was put down for this line. A point that was already on the
     // map was joined to, not made, and stays where it is.
-    if (id < 0) _editor.undo();
+    // Taken back rather than undone, so it cannot be redone: the line
+    // being drawn does not know about it any more.
+    if (id < 0) _edits.undoSince(_edits.length - 1);
     if (_drawing.isEmpty) _drawingFrom = null;
     setState(() {});
     _loader.editsChanged();
@@ -1340,6 +1353,15 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                 const _UndoIntent(),
             SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
                 const _UndoIntent(),
+            SingleActivator(
+              LogicalKeyboardKey.keyZ,
+              control: true,
+              shift: true,
+            ): const _RedoIntent(),
+            SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
+                const _RedoIntent(),
+            SingleActivator(LogicalKeyboardKey.keyY, control: true):
+                const _RedoIntent(),
             // iD's keys for what can be done to what is selected.
             const SingleActivator(LogicalKeyboardKey.delete):
                 const _OperationIntent(OperationKind.delete),
@@ -1394,6 +1416,12 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
               _UndoIntent: _MapAction<_UndoIntent>(
                 onInvoke: (_) {
                   _undo();
+                  return null;
+                },
+              ),
+              _RedoIntent: _MapAction<_RedoIntent>(
+                onInvoke: (_) {
+                  _redo();
                   return null;
                 },
               ),
@@ -1814,6 +1842,11 @@ class _ZoomToEdit extends StatelessWidget {
 /// Asks for the last change to be put back.
 class _UndoIntent extends Intent {
   const _UndoIntent();
+}
+
+/// Asks for the last change put back to be made again.
+class _RedoIntent extends Intent {
+  const _RedoIntent();
 }
 
 /// Asks for something to be done to what is selected.
