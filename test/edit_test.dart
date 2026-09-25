@@ -55,7 +55,7 @@ Future<Uint8List?> _road(
   );
 }
 
-Future<MapLoader> _loaded(OsmEdits edits, {OsmTileCache? cache}) async {
+Future<MapLoader> _loaded(OsmEditHistory edits, {OsmTileCache? cache}) async {
   final loader = MapLoader(
     client: OsmApiClient(fetch: _road),
     edits: edits,
@@ -72,14 +72,14 @@ OsmNode _someNode(MapLoader loader) => loader.store.nodes.values.first;
 
 void main() {
   test('draws nothing for changes while there are none', () async {
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final loader = await _loaded(edits);
     expect(editedGeometry(loader.store, edits).isEmpty, isTrue);
     expect(loader.hidden, isEmpty);
   });
 
   test('takes what has been changed out of the tiles', () async {
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final loader = await _loaded(edits);
     final node = _someNode(loader);
 
@@ -92,7 +92,7 @@ void main() {
   });
 
   test('draws what has been changed instead', () async {
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final loader = await _loaded(edits);
     final node = _someNode(loader);
 
@@ -108,7 +108,7 @@ void main() {
   });
 
   test('leaves what was read exactly as it was read', () async {
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final loader = await _loaded(edits);
     final node = _someNode(loader);
 
@@ -124,7 +124,7 @@ void main() {
     final work = await Directory.systemTemp.createTemp('kupe_edit_test');
     addTearDown(() async => work.delete(recursive: true));
 
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final cache = await OsmTileCache.open(directory: work);
     final loader = await _loaded(edits, cache: cache);
     final node = _someNode(loader);
@@ -144,7 +144,7 @@ void main() {
   });
 
   test('puts everything back when the change is undone', () async {
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final loader = await _loaded(edits);
     final node = _someNode(loader);
 
@@ -159,7 +159,7 @@ void main() {
   });
 
   test('builds the tile again with what was hidden back in it', () async {
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final loader = await _loaded(edits);
     final node = _someNode(loader);
     final before = loader.tiles.fold(0, (sum, tile) => sum + tile.vertices);
@@ -175,7 +175,7 @@ void main() {
   });
 
   test('asks the API for nothing when something is changed', () async {
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final loader = await _loaded(edits);
     final asked = loader.requests;
 
@@ -194,7 +194,7 @@ void main() {
     const way = OsmWay(id: 4, nodeIds: [1, 2, 3, 1], tags: {'building': 'yes'});
     final store = MapStore()
       ..add(OsmTile.at(16, _latitude, _longitude), [...corners, way]);
-    final edits = OsmEdits()
+    final edits = OsmEditHistory()
       ..moveNode(
         corners[1],
         latitude: _latitude + 0.0001,

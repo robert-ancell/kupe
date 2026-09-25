@@ -2,8 +2,8 @@ import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kupe/src/data/map_store.dart';
-import 'package:kupe/src/edit/view.dart';
 import 'package:kupe/src/map/operations.dart';
+import 'package:kupe/src/style/style.dart';
 import 'package:osm/osm.dart';
 
 const _tile = OsmTile(16, 64583, 39992);
@@ -18,7 +18,7 @@ OsmNode _node(int id, double lon, [Map<String, String> tags = const {}]) =>
     );
 
 /// A road of three nodes, the middle one a crossing, and a path off its end.
-StoreEditView _roads({List<OsmRelation> relations = const []}) {
+OsmEditor _roads({List<OsmRelation> relations = const []}) {
   final store = MapStore()
     ..add(_tile, [
       _node(1, 0),
@@ -39,7 +39,7 @@ StoreEditView _roads({List<OsmRelation> relations = const []}) {
       ),
       ...relations,
     ]);
-  return StoreEditView(store, OsmEdits());
+  return OsmEditor(store, isArea: enclosesArea);
 }
 
 List<OperationKind> _kinds(List<OfferedOperation> offered) => [
@@ -53,7 +53,7 @@ void main() {
     expect(_kinds(nothing), [OperationKind.paste]);
     expect(nothing.single.disabled, 'No features have been copied.');
 
-    final copied = osmCopy(view, [view.way(11)!, view.way(10)!]);
+    final copied = view.copy([view.way(11)!, view.way(10)!]);
     final something = offeredOperations(view, const [], copied: copied);
     expect(something.single.enabled, isTrue);
     expect(something.single.description, 'Add 2 duplicate features here.');
@@ -64,8 +64,8 @@ void main() {
       ..add(_tile, [
         _node(1, 0, {'amenity': 'bench', 'name': 'Rest'}),
       ]);
-    final view = StoreEditView(store, OsmEdits());
-    final copied = osmCopy(view, [view.node(1)!]);
+    final view = OsmEditor(store, isArea: enclosesArea);
+    final copied = view.copy([view.node(1)!]);
     expect(
       offeredOperations(view, const [], copied: copied).single.description,
       'Add a duplicate Rest here.',
@@ -211,7 +211,7 @@ void main() {
       ],
     );
     expect(view.relationsUsing(OsmElementType.way, 10).map((r) => r.id), [30]);
-    view.edits.setRelationMembers(view.relation(30)!, const []);
+    view.history.setRelationMembers(view.relation(30)!, const []);
     expect(view.relationsUsing(OsmElementType.way, 10), isEmpty);
   });
 

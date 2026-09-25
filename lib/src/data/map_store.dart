@@ -8,7 +8,10 @@ import 'package:osm/osm.dart';
 /// Holding elements by id rather than by the box they arrived in makes those
 /// copies collapse into one, and leaves each box able to resolve geometry
 /// that reaches into a box that has not been asked for yet.
-class MapStore {
+///
+/// What an [OsmEditor] edits: the map as it was read, which the editor lays
+/// its changes over.
+class MapStore implements OsmEditorData {
   final _nodes = <int, OsmNode>{};
   final _ways = <int, OsmWay>{};
   final _relations = <int, OsmRelation>{};
@@ -30,6 +33,19 @@ class MapStore {
 
   /// Every relation held, by id.
   Map<int, OsmRelation> get relations => _relations;
+
+  @override
+  OsmNode? node(int id) => _nodes[id];
+
+  @override
+  OsmWay? way(int id) => _ways[id];
+
+  @override
+  OsmRelation? relation(int id) => _relations[id];
+
+  @override
+  Iterable<int> relationsUsing(OsmElementType type, int id) =>
+      relationsListing(type, id);
 
   /// How many elements are held.
   int get length => _nodes.length + _ways.length + _relations.length;
@@ -76,6 +92,7 @@ class MapStore {
   /// The ways held that run through the node with [id].
   ///
   /// What has to be drawn again when that node moves.
+  @override
   List<int> waysUsing(int id) => _nodeWays[id] ?? const [];
 
   /// The ids of the relations held that list the element of [type] with

@@ -33,7 +33,7 @@ void main() {
       tags: {'highway': 'residential'},
     );
     final store = _storeWith([road]);
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
 
     final made = insertNodeInto(
       road,
@@ -59,7 +59,7 @@ void main() {
       [road],
       extra: const [OsmNode(id: 3, latitude: _latitude, longitude: 174.764)],
     );
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
 
     final made = insertNodeInto(
       road,
@@ -81,7 +81,7 @@ void main() {
     );
     const path = OsmWay(id: 11, nodeIds: [1, 2], tags: {'highway': 'footway'});
     final store = _storeWith([road, path]);
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
 
     final made = insertNodeInto(
       road,
@@ -102,7 +102,7 @@ void main() {
     );
     const other = OsmWay(id: 11, nodeIds: [2, 1], tags: {'barrier': 'fence'});
     final store = _storeWith([road, other]);
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
 
     final made = insertNodeInto(
       road,
@@ -125,7 +125,7 @@ void main() {
       [road, side],
       extra: const [OsmNode(id: 3, latitude: -36.851, longitude: 174.760)],
     );
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
 
     insertNodeInto(road, store, edits, worldX: _middleX, worldY: _middleY);
     expect(edits.changedWay(11), isNull);
@@ -139,7 +139,7 @@ void main() {
     );
     const path = OsmWay(id: 11, nodeIds: [1, 2], tags: {'highway': 'footway'});
     final store = _storeWith([road, path]);
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
 
     final made = insertNodeInto(
       road,
@@ -161,7 +161,7 @@ void main() {
   test('puts nothing anywhere for a line with no length', () {
     const road = OsmWay(id: 10, nodeIds: [1], tags: {'highway': 'residential'});
     final store = _storeWith([road]);
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     expect(
       insertNodeInto(road, store, edits, worldX: _middleX, worldY: _middleY),
       isNull,
@@ -179,7 +179,7 @@ void _deleting() {
         tags: {'highway': 'residential'},
       );
       final store = _storeWith([road]);
-      final edits = OsmEdits();
+      final edits = OsmEditHistory();
 
       final made = insertNodeInto(
         road,
@@ -203,13 +203,13 @@ void _deleting() {
         tags: {'highway': 'residential'},
       );
       final store = _storeWith([road]);
-      final edits = OsmEdits();
+      final edits = OsmEditHistory();
       expect(waysUsingNode(1, store, edits).single.id, 10);
     });
 
     test('finds a way drawn around a node since', () {
       final store = _storeWith(const []);
-      final edits = OsmEdits();
+      final edits = OsmEditHistory();
       final way = edits.createWay(nodeIds: [1, 2]);
       expect(waysUsingNode(1, store, edits).single.id, way.id);
     });
@@ -221,7 +221,7 @@ void _deleting() {
         tags: {'highway': 'residential'},
       );
       final store = _storeWith([road]);
-      final edits = OsmEdits();
+      final edits = OsmEditHistory();
       edits.setWayNodes(road, [1]);
       expect(waysUsingNode(2, store, edits), isEmpty);
     });

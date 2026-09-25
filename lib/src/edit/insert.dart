@@ -30,7 +30,7 @@ class _Along {
 OsmNode? insertNodeInto(
   OsmWay way,
   MapStore store,
-  OsmEdits edits, {
+  OsmEditHistory edits, {
   required double worldX,
   required double worldY,
 }) {
@@ -68,7 +68,7 @@ OsmNode? insertNodeInto(
 _Along? _alongWay(
   OsmWay way,
   MapStore store,
-  OsmEdits edits,
+  OsmEditHistory edits,
   double worldX,
   double worldY,
 ) {
@@ -111,5 +111,5 @@ int? _segmentBetween(OsmWay way, int before, int after) {
   return null;
 }
 
-OsmNode? _nodeOf(int id, MapStore store, OsmEdits edits) =>
+OsmNode? _nodeOf(int id, MapStore store, OsmEditHistory edits) =>
     edits.changedNode(id) ?? store.nodes[id];

@@ -44,7 +44,7 @@ class EditedGeometry {
 /// a node following the pointer.
 EditedGeometry editedGeometry(
   MapStore store,
-  OsmEdits edits, {
+  OsmEditHistory edits, {
   List<int> drawing = const [],
 }) {
   if (edits.isEmpty && drawing.isEmpty) {
@@ -97,7 +97,7 @@ EditedGeometry editedGeometry(
 
 /// Where a run of nodes is, from wherever they now are, leaving out any that
 /// are not held.
-List<double> _pointsOf(List<int> ids, MapStore store, OsmEdits edits) {
+List<double> _pointsOf(List<int> ids, MapStore store, OsmEditHistory edits) {
   final points = <double>[];
   for (final id in ids) {
     if (edits.isGone(OsmElementType.node, id)) continue;

@@ -82,7 +82,7 @@ class MapLoader {
   /// What has been changed is left out of the tiles that are built and kept,
   /// because those are built once and a change has to show at once. It is
   /// drawn from what it is now instead.
-  final OsmEdits edits;
+  final OsmEditHistory edits;
 
   /// Everything read so far.
   final MapStore store = MapStore();
@@ -120,8 +120,8 @@ class MapLoader {
     required this.onChanged,
     this.cache,
     this.place,
-    OsmEdits? edits,
-  }) : edits = edits ?? OsmEdits();
+    OsmEditHistory? edits,
+  }) : edits = edits ?? OsmEditHistory();
 
   /// The elements left out of the tiles because they have been changed.
   Set<(OsmElementType, int)> get hidden => _hidden;

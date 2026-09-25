@@ -8,7 +8,7 @@ import '../data/map_store.dart';
 /// knows nothing of a node put down a moment ago, or of a way drawn around
 /// it, so asking it alone leaves a way running through a node that is about
 /// to be taken off the map.
-List<OsmWay> waysUsingNode(int id, MapStore store, OsmEdits edits) {
+List<OsmWay> waysUsingNode(int id, MapStore store, OsmEditHistory edits) {
   final found = <OsmWay>[];
   final seen = <int>{};
   for (final wayId in store.waysUsing(id)) {

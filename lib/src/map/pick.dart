@@ -107,7 +107,7 @@ class PickedWay extends Picked {
 /// What is picked holds the geometry to draw it by, which stops being true
 /// the moment it is moved. Anything holding onto something picked has to ask
 /// for it again as it changes, or it draws where the thing used to be.
-Picked? refreshed(Picked picked, MapStore store, OsmEdits edits) {
+Picked? refreshed(Picked picked, MapStore store, OsmEditHistory edits) {
   if (edits.isGone(picked.type, picked.id)) return null;
   switch (picked) {
     case PickedNode():
@@ -172,7 +172,11 @@ bool isNodeSelectable(
 /// that has been made since. Something just made is in no box: it exists
 /// only among the changes, and not being able to take hold of what has just
 /// been put down is no use at all.
-List<OsmWay> waysNear(MapStore store, OsmEdits? edits, List<OsmTile> tiles) {
+List<OsmWay> waysNear(
+  MapStore store,
+  OsmEditHistory? edits,
+  List<OsmTile> tiles,
+) {
   final found = <OsmWay>[];
   final seen = <int>{};
   for (final tile in tiles) {
@@ -213,7 +217,7 @@ Picked? pickAt(
   Size size,
   MapStore store, {
   Set<int> selectedWays = const {},
-  OsmEdits? edits,
+  OsmEditHistory? edits,
   int zoom = 16,
 }) =>
     nodeAt(
@@ -234,7 +238,7 @@ PickedNode? nodeAt(
   Size size,
   MapStore store, {
   Set<int> selectedWays = const {},
-  OsmEdits? edits,
+  OsmEditHistory? edits,
   int zoom = 16,
 }) {
   final world = camera.toWorld(point, size);
@@ -310,7 +314,7 @@ PickedWay? wayAt(
   Camera camera,
   Size size,
   MapStore store, {
-  OsmEdits? edits,
+  OsmEditHistory? edits,
   int zoom = 16,
 }) {
   final world = camera.toWorld(point, size);
@@ -378,7 +382,11 @@ List<OsmTile> _tilesAround(Offset world, double reach, int zoom) {
 ///
 /// From where the nodes are now, which is where they have been moved to if
 /// they have been moved at all.
-List<double>? worldPointsOf(OsmWay way, MapStore store, [OsmEdits? edits]) {
+List<double>? worldPointsOf(
+  OsmWay way,
+  MapStore store, [
+  OsmEditHistory? edits,
+]) {
   final points = <double>[];
   for (final id in way.nodeIds) {
     // A node taken off the map is left out rather than taken as a hole in

@@ -81,7 +81,7 @@ void main() {
   group('uploading', () {
     /// Some changes to show: a node made, and one moved.
     OsmUpload changes() {
-      final edits = OsmEdits()..createNode(latitude: 1, longitude: 2);
+      final edits = OsmEditHistory()..createNode(latitude: 1, longitude: 2);
       edits.moveNode(
         const OsmNode(
           id: 7,

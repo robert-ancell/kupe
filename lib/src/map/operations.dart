@@ -82,7 +82,7 @@ class OfferedOperation {
 /// With nothing selected, the one thing there is to do is paste what was
 /// [copied], which is offered greyed while nothing has been.
 List<OfferedOperation> offeredOperations(
-  OsmEditView view,
+  OsmEditor view,
   List<OsmElement> selected, {
   OsmPresets? presets,
   Set<String> here = const {},
@@ -112,7 +112,7 @@ List<OfferedOperation> offeredOperations(
 
   final offered = <OfferedOperation>[];
 
-  final continuable = osmContinuable(view, selected);
+  final continuable = view.continuable(selected);
   if (continuable != null) {
     offered.add(
       OfferedOperation(
@@ -299,7 +299,7 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
-  if (osmCopy(view, selected) != null) {
+  if (view.copy(selected) != null) {
     offered.add(
       OfferedOperation(
         kind: OperationKind.copy,
@@ -367,7 +367,7 @@ List<OfferedOperation> offeredOperations(
 /// kind of thing it is, in lower case, as iD words it.
 String _labelOf(
   OsmElement element,
-  OsmEditView view,
+  OsmEditor view,
   OsmPresets? presets,
   Set<String> here,
 ) {

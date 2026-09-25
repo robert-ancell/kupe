@@ -383,7 +383,7 @@ void _refreshing() {
   group('following a change', () {
     test('gives a node back from where it now is', () {
       final store = _road();
-      final edits = OsmEdits();
+      final edits = OsmEditHistory();
       final picked = pickAt(_nodeOn(0), _camera, _size, store)! as PickedNode;
 
       edits.moveNode(
@@ -401,7 +401,7 @@ void _refreshing() {
 
     test('gives a line back with its moved node moved', () {
       final store = _road();
-      final edits = OsmEdits();
+      final edits = OsmEditHistory();
       final picked =
           pickAt(_nodeOn(2), _camera, _size, store, selectedWays: const {1})!
               as PickedNode;
@@ -425,14 +425,14 @@ void _refreshing() {
     test('gives back what it was given when nothing has changed', () {
       final store = _road();
       final picked = pickAt(_nodeOn(0), _camera, _size, store)! as PickedNode;
-      final now = refreshed(picked, store, OsmEdits())! as PickedNode;
+      final now = refreshed(picked, store, OsmEditHistory())! as PickedNode;
       expect(now.worldX, picked.worldX);
       expect(now.worldY, picked.worldY);
     });
 
     test('gives back nothing for something no longer held', () {
       final picked = pickAt(_nodeOn(0), _camera, _size, _road())!;
-      expect(refreshed(picked, MapStore(), OsmEdits()), isNull);
+      expect(refreshed(picked, MapStore(), OsmEditHistory()), isNull);
     });
   });
 }
@@ -440,7 +440,7 @@ void _refreshing() {
 void _afterDeleting() {
   test('takes hold of a line after a node is taken out of it', () {
     final store = _road(count: 5);
-    final edits = OsmEdits();
+    final edits = OsmEditHistory();
     final way = store.ways[1]!;
 
     // Take out a node in the middle of it.

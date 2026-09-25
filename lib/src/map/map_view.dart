@@ -15,10 +15,10 @@ import '../account/upload_dialog.dart';
 import '../data/map_loader.dart';
 import '../edit/edited_geometry.dart';
 import '../edit/insert.dart';
-import '../edit/view.dart';
 import '../imagery/imagery_layer.dart';
 import '../render/map_painter.dart';
 import '../render/node_sprite.dart';
+import '../style/style.dart';
 import 'camera.dart';
 import 'frame_stats.dart';
 import 'operations.dart';
@@ -151,10 +151,18 @@ class MapView extends StatefulWidget {
 
 class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   late Camera _camera = widget.initialCamera;
-  late final OsmEdits _edits = OsmEdits(
+  late final OsmEditHistory _edits = OsmEditHistory(
     onChanged: () {
       if (mounted) setState(() {});
     },
+  );
+
+  /// Everything done to the map, laid over what [_loader] has read.
+  late final OsmEditor _editor = OsmEditor(
+    _loader.store,
+    history: _edits,
+    presets: widget.presets?.value,
+    isArea: enclosesArea,
   );
   late final MapLoader _loader = MapLoader(
     client: widget.client,
@@ -337,7 +345,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     uploader.close();
     if (changeset == null || !mounted) return;
     setState(() {
-      _edits.undoAll();
+      _editor.undoAll();
       _selected.clear();
       _hovered = null;
       _comment.clear();
@@ -639,7 +647,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final first = !_dragged;
     _dragged = true;
     setState(() {
-      _edits.moveNode(
+      _editor.moveNode(
         held.node,
         latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
         longitude: Mercator.wrappedLongitude(world.dx),
@@ -651,16 +659,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   }
 
   void _presetsChanged() {
+    _editor.presets = widget.presets?.value;
     if (mounted) setState(() {});
   }
 
-  /// The map as it now stands, for anything done to it to work from.
-  StoreEditView get _view =>
-      StoreEditView(_loader.store, _edits, presets: widget.presets?.value);
-
-  /// The shape [element] takes; see [StoreEditView.geometryOf].
+  /// The shape [element] takes; see [OsmEditor.geometryOf].
   OsmGeometry _geometryOf(OsmElement element, OsmPresets presets) =>
-      _view.geometryOf(element);
+      _editor.geometryOf(element);
 
   /// What is selected, as it now stands.
   List<OsmElement> get _selectedElements => [
@@ -683,7 +688,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       if (y > bottom) bottom = y;
     }
 
-    final view = _view;
+    final view = _editor;
     for (final element in _selectedElements) {
       switch (element) {
         case OsmNode():
@@ -707,7 +712,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   List<OfferedOperation> _offered() {
     final selected = _selectedElements;
     return offeredOperations(
-      _view,
+      _editor,
       selected,
       presets: widget.presets?.value,
       here: selected.isEmpty ? const {} : _regionsOf(selected.first),
@@ -731,11 +736,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// however long the pointer wanders it comes to one change to undo.
   void _followPointer(Offset at) {
     final (mark, start, elements) = _moving!;
-    while (_edits.length > mark) {
-      _edits.undo();
-    }
+    _edits.undoSince(mark);
     final world = _camera.toWorld(at, _size);
-    osmMove(_view, elements, dx: world.dx - start.dx, dy: world.dy - start.dy);
+    _editor.move(elements, dx: world.dx - start.dx, dy: world.dy - start.dy);
     _loader.editsChanged();
     setState(_refreshPicked);
   }
@@ -743,9 +746,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Puts back what was being moved where it was.
   void _cancelMove() {
     final (mark, _, _) = _moving!;
-    while (_edits.length > mark) {
-      _edits.undo();
-    }
+    _edits.undoSince(mark);
     _loader.editsChanged();
     setState(() {
       _moving = null;
@@ -772,15 +773,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       setState(() => _notice = why);
       return;
     }
-    final view = _view;
+    final view = _editor;
     final selected = _selectedElements;
     switch (kind) {
       case OperationKind.move:
         setState(() => _moving = (_edits.length, _actionPoint, selected));
         return;
       case OperationKind.copy:
-        _copied = osmCopy(
-          view,
+        _copied = view.copy(
           selected,
           anchor: (_actionPoint.dx, _actionPoint.dy),
         );
@@ -789,17 +789,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         _paste();
         return;
       case OperationKind.continueLine:
-        final line = osmContinuable(view, selected)!.single;
+        final line = view.continuable(selected)!.single;
         final vertex = selected.whereType<OsmNode>().single;
         _startContinuing(line, vertex);
         return;
       case OperationKind.extract:
-        final points = OsmExtractOperation(
-          view,
-          selected,
-          presets: widget.presets?.value,
-          here: _regionsOf(selected.first),
-        ).apply();
+        final points = view
+            .extract(selected, here: _regionsOf(selected.first))
+            .apply();
         _loader.editsChanged();
         setState(() {
           _selected.clear();
@@ -813,22 +810,22 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           _refreshPicked();
         });
       case OperationKind.disconnect:
-        OsmDisconnectOperation(view, selected).apply();
+        view.disconnect(selected).apply();
         _loader.editsChanged();
         setState(_refreshPicked);
       case OperationKind.merge:
-        _selectAfter(OsmMergeOperation(view, selected).apply());
+        _selectAfter(view.merge(selected).apply());
       case OperationKind.split:
-        final ways = OsmSplitOperation(view, selected).apply();
+        final ways = view.split(selected).apply();
         // The nodes and the pieces, so that they can be disconnected
         // straight away if that is what is wanted next.
         _selectAfter([...selected.whereType<OsmNode>(), ...ways]);
       case OperationKind.reverse:
-        OsmReverseOperation(view, selected).apply();
+        view.reverse(selected).apply();
         _loader.editsChanged();
         setState(_refreshPicked);
       case OperationKind.delete:
-        OsmDeleteOperation(view, selected).apply();
+        view.delete(selected).apply();
         _loader.editsChanged();
         setState(() {
           _selected.clear();
@@ -849,16 +846,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     if (copied == null) return;
     final to = _actionPoint;
     final (fromX, fromY) = copied.anchor ?? copied.middle;
-    _selectAfter(
-      osmPaste(_edits, copied, dx: to.dx - fromX, dy: to.dy - fromY),
-    );
+    _selectAfter(_editor.paste(copied, dx: to.dx - fromX, dy: to.dy - fromY));
   }
 
   /// Selects [elements] as they now stand once an operation has changed
   /// them.
   void _selectAfter(List<OsmElement> elements) {
     _loader.editsChanged();
-    final view = _view;
+    final view = _editor;
     setState(() {
       _selected.clear();
       for (final element in elements) {
@@ -975,7 +970,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final tags = Map.of(vertex.tags);
     if (tags['fixme'] == 'continue') tags.remove('fixme');
     if (tags['noexit'] == 'yes') tags.remove('noexit');
-    _edits.setTags(vertex, tags);
+    _editor.setTags(vertex, tags);
     setState(() {
       _selected.clear();
       _continuing = (line.id, line.nodeIds.first == vertex.id);
@@ -1010,11 +1005,11 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// However many elements one edit of the text touches, it was one thing to
   /// whoever made it and is one thing to undo.
   void _setTags(List<(OsmElement, Map<String, String>)> changes) {
-    final mark = _edits.length;
-    for (final (element, tags) in changes) {
-      _edits.setTags(element, tags);
-    }
-    _edits.combineSince(mark);
+    _editor.group(() {
+      for (final (element, tags) in changes) {
+        _editor.setTags(element, tags);
+      }
+    });
     _loader.editsChanged();
     _refreshPicked();
   }
@@ -1039,7 +1034,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       _removeLastPoint();
       return;
     }
-    if (!_edits.undo()) return;
+    if (!_editor.undo()) return;
     _loader.editsChanged();
     _refreshPicked();
   }
@@ -1098,7 +1093,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Puts a node where the map was clicked, and takes hold of it.
   void _placeNode(Offset at) {
     final world = _camera.toWorld(at, _size);
-    final made = _edits.createNode(
+    final made = _editor.createNode(
       latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
       longitude: Mercator.wrappedLongitude(world.dx),
     );
@@ -1209,20 +1204,18 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final continuing = _continuing;
     if (continuing != null) {
       final (id, fromStart) = continuing;
-      final line = _view.way(id);
+      final line = _editor.way(id);
       final added = _drawing.skip(1).toList();
       if (line != null && added.isNotEmpty) {
-        _edits.setWayNodes(line, [
+        _editor.setWayNodes(line, [
           if (fromStart) ...added.reversed,
           ...line.nodeIds,
           if (!fromStart) ...added,
         ]);
         if (from != null) _edits.combineSince(from);
-        _selectOnly(_view.way(id)!);
+        _selectOnly(_editor.way(id)!);
       } else if (from != null) {
-        while (_edits.length > from) {
-          _edits.undo();
-        }
+        _edits.undoSince(from);
       }
       setState(() {
         _drawing.clear();
@@ -1234,7 +1227,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       return;
     }
     if (_drawing.length > (closing ? 2 : 1)) {
-      final way = _edits.createWay(
+      final way = _editor.createWay(
         nodeIds: [..._drawing, if (closing) _drawing.first],
       );
       // Drawn a point at a time, but a line once it is finished, and a line
@@ -1243,9 +1236,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       _selectOnly(way);
     } else if (from != null) {
       // Not enough of a line to keep, so its points go with it.
-      while (_edits.length > from) {
-        _edits.undo();
-      }
+      _edits.undoSince(from);
     }
     setState(() {
       _drawing.clear();
@@ -1260,9 +1251,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     if (_drawing.isEmpty && _tool == MapTool.browse) return;
     final from = _drawingFrom;
     if (from != null) {
-      while (_edits.length > from) {
-        _edits.undo();
-      }
+      _edits.undoSince(from);
     }
     setState(() {
       _drawing.clear();
@@ -1278,7 +1267,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final id = _drawing.removeLast();
     // Only if it was put down for this line. A point that was already on the
     // map was joined to, not made, and stays where it is.
-    if (id < 0) _edits.undo();
+    if (id < 0) _editor.undo();
     if (_drawing.isEmpty) _drawingFrom = null;
     setState(() {});
     _loader.editsChanged();
