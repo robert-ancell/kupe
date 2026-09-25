@@ -81,7 +81,7 @@ const zoomToEditDuration = Duration(milliseconds: 250);
 /// map is still or moving, and new tiles appear as their answers arrive.
 class MapView extends StatefulWidget {
   /// Where to read the map from.
-  final OsmApiClient api;
+  final OsmApiClient client;
 
   /// Where to start looking from.
   final Camera initialCamera;
@@ -132,7 +132,7 @@ class MapView extends StatefulWidget {
   /// Creates the map.
   const MapView({
     super.key,
-    required this.api,
+    required this.client,
     required this.initialCamera,
     this.cache,
     this.place,
@@ -157,7 +157,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     },
   );
   late final MapLoader _loader = MapLoader(
-    api: widget.api,
+    client: widget.client,
     cache: widget.cache,
     place: widget.place,
     edits: _edits,

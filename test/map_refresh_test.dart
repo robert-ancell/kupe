@@ -143,7 +143,7 @@ void main() {
   Future<OsmTileCache> fill(_Api server) async {
     final cache = await OsmTileCache.open(directory: work);
     MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     ).look(_at(17), _size);
@@ -155,7 +155,7 @@ void main() {
     final server = _Api();
     final cache = await OsmTileCache.open(directory: work);
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     );
@@ -169,7 +169,7 @@ void main() {
     final server = _Api();
     final cache = await fill(server);
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     );
@@ -188,7 +188,7 @@ void main() {
     final read = server.boxes.length;
 
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     );
@@ -217,7 +217,7 @@ void main() {
     ];
 
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     );
@@ -243,7 +243,7 @@ void main() {
     ];
 
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     );
@@ -265,7 +265,7 @@ void main() {
       server.edits = const [null];
 
       final loader = MapLoader(
-        api: OsmApiClient(fetch: server.fetch),
+        client: OsmApiClient(fetch: server.fetch),
         cache: cache,
         onChanged: () {},
       );
@@ -286,7 +286,7 @@ void main() {
       server.tooManyEdits = true;
 
       final loader = MapLoader(
-        api: OsmApiClient(fetch: server.fetch),
+        client: OsmApiClient(fetch: server.fetch),
         cache: cache,
         onChanged: () {},
       );
@@ -311,7 +311,7 @@ void main() {
     ];
 
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     );

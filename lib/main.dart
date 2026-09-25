@@ -181,7 +181,7 @@ class KupeApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: MapView(
-          api: OsmApiClient(contact: contact, concurrency: maximumInFlight),
+          client: OsmApiClient(contact: contact, concurrency: maximumInFlight),
           initialCamera: camera,
           cache: cache,
           place: place,

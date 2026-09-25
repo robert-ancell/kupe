@@ -109,7 +109,7 @@ void main() {
   test('gives up on boxes the map has moved off', () async {
     final server = _Held();
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       onChanged: () {},
     );
     loader.look(_at(-36.85, 174.76), _size);
@@ -125,7 +125,7 @@ void main() {
   test('keeps reading the boxes still on screen', () async {
     final server = _Held();
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       onChanged: () {},
     );
     final where = _at(-36.85, 174.76);
@@ -146,7 +146,7 @@ void main() {
     final cache = await OsmTileCache.open(directory: work);
     final server = _Held()..replyBegun = true;
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     );
@@ -169,7 +169,7 @@ void main() {
     final cache = await OsmTileCache.open(directory: work);
     final server = _Held()..replyBegun = true;
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       cache: cache,
       onChanged: () {},
     );
@@ -196,7 +196,7 @@ void main() {
   test('loses nothing when there is no cache to keep it in', () async {
     final server = _Held()..replyBegun = true;
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       onChanged: () {},
     );
     loader.look(_at(-36.85, 174.76), _size);
@@ -213,7 +213,7 @@ void main() {
   test('gives up on everything when it is thrown away', () async {
     final server = _Held();
     final loader = MapLoader(
-      api: OsmApiClient(fetch: server.fetch),
+      client: OsmApiClient(fetch: server.fetch),
       onChanged: () {},
     );
     loader.look(_at(-36.85, 174.76), _size);

@@ -202,7 +202,7 @@ Future<void> _open(WidgetTester tester, {double zoom = 17}) async {
     MaterialApp(
       home: Scaffold(
         body: MapView(
-          api: OsmApiClient(fetch: _nothing),
+          client: OsmApiClient(fetch: _nothing),
           initialCamera: Camera.at(
             latitude: -36.85,
             longitude: 174.76,
@@ -264,7 +264,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: MapView(
-            api: OsmApiClient(fetch: _nothing),
+            client: OsmApiClient(fetch: _nothing),
             initialCamera: Camera.at(
               latitude: -36.85,
               longitude: 174.76,
@@ -335,7 +335,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: _oneRoad),
+              client: OsmApiClient(fetch: _oneRoad),
               initialCamera: Camera.at(
                 latitude: -36.85,
                 longitude: 174.76,
@@ -419,7 +419,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: _twoRoads),
+              client: OsmApiClient(fetch: _twoRoads),
               initialCamera: Camera.at(
                 latitude: _roadLatitude,
                 longitude: 174.76,
@@ -539,7 +539,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: _shortRoad),
+              client: OsmApiClient(fetch: _shortRoad),
               initialCamera: Camera.at(
                 latitude: _roadLatitude,
                 longitude: 174.76,
@@ -620,7 +620,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: _shortRoad),
+              client: OsmApiClient(fetch: _shortRoad),
               initialCamera: Camera.at(
                 latitude: _roadLatitude,
                 longitude: 174.76,
@@ -768,7 +768,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: _shortRoad),
+              client: OsmApiClient(fetch: _shortRoad),
               initialCamera: Camera.at(
                 latitude: _roadLatitude,
                 longitude: 174.76,
@@ -1265,7 +1265,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: _twoRoads),
+              client: OsmApiClient(fetch: _twoRoads),
               initialCamera: Camera.at(
                 latitude: _roadLatitude,
                 longitude: 174.76,
@@ -1464,7 +1464,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: oneRoad),
+              client: OsmApiClient(fetch: oneRoad),
               initialCamera: Camera.at(
                 latitude: _roadLatitude,
                 longitude: 174.76,
@@ -1725,7 +1725,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: _twoRoads),
+              client: OsmApiClient(fetch: _twoRoads),
               initialCamera: Camera.at(
                 latitude: _roadLatitude,
                 longitude: 174.76,
@@ -1804,7 +1804,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: MapView(
-              api: OsmApiClient(fetch: _nothing),
+              client: OsmApiClient(fetch: _nothing),
               initialCamera: Camera.at(
                 latitude: -36.85,
                 longitude: 174.76,

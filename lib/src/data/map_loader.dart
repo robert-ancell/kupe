@@ -69,7 +69,7 @@ const maximumSplits = 2;
 /// than asking for it anyway.
 class MapLoader {
   /// The API to read from.
-  final OsmApiClient api;
+  final OsmApiClient client;
 
   /// Where boxes already read are kept between runs, if anywhere.
   final OsmTileCache? cache;
@@ -116,7 +116,7 @@ class MapLoader {
 
   /// Creates a loader.
   MapLoader({
-    required this.api,
+    required this.client,
     required this.onChanged,
     this.cache,
     this.place,
@@ -188,7 +188,7 @@ class MapLoader {
   int get waiting => _queue.length + _running;
 
   /// How many requests have been made to the API.
-  int get requests => api.requests;
+  int get requests => client.requests;
 
   /// Asks for whatever [camera] can see and has not been read yet.
   ///
@@ -293,7 +293,7 @@ class MapLoader {
     List<OsmChangeset>? changesets = [];
     try {
       for (final bounds in camera.groundBounds(_size)) {
-        final some = await api.changesetsIn(bounds, since: since);
+        final some = await client.changesetsIn(bounds, since: since);
         if (some == null) {
           changesets = null;
           break;
@@ -401,7 +401,7 @@ class MapLoader {
     final giveUp = Completer<void>();
     _reading[tile] = giveUp;
     try {
-      final elements = await api.map(
+      final elements = await client.map(
         tile.bounds,
         abandon: giveUp.future,
         // Given up on, but the server had already begun answering. The work
