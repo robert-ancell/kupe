@@ -235,9 +235,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// The nodes of the line being drawn, if one is.
   final _drawing = <int>[];
 
-  /// How many changes had been made when the line being drawn was started,
-  /// so that all of it can be gathered into one when it is finished.
-  int? _drawingFrom;
+  /// Where in the history the line being drawn was started, so that all of
+  /// it can be gathered into one change when it is finished.
+  OsmEditMark? _drawingFrom;
+
+  /// Where in the history each point made for the line being drawn was put
+  /// down, by its id, so that it can be taken back again.
+  final _pointMarks = <int, OsmEditMark>{};
 
   /// The line being carried on, if the line being drawn is the rest of one,
   /// and whether it is being carried on from its start rather than its end.
@@ -259,7 +263,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// What is being moved to follow the pointer, if anything is: how many
   /// changes there were before it started, where the pointer started, in
   /// world coordinates, and what is moving.
-  (int, Offset, List<OsmElement>)? _moving;
+  (OsmEditMark, Offset, List<OsmElement>)? _moving;
 
   DateTime? _tappedAt;
   Offset? _tappedOn;
@@ -351,9 +355,10 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     if (_account.token == null || !mounted) return;
     final changeset = await showUploadDialog(
       context,
-      upload: _edits.upload,
+      upload: _edits.toUpload(),
       comment: _comment,
-      send: (comment) => widget.client.upload(_edits.upload, comment: comment),
+      send: (comment) =>
+          widget.client.upload(_edits.toUpload(), comment: comment),
     );
     if (changeset == null || !mounted) return;
     setState(() {
@@ -752,11 +757,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final (mark, start, elements) = _moving!;
     _editor.undoSince(mark);
     final world = _camera.toWorld(at, _size);
-    _editor.move(
-      elements,
-      worldDx: world.dx - start.dx,
-      worldDy: world.dy - start.dy,
-    );
+    _editor
+        .move(
+          elements,
+          worldDx: world.dx - start.dx,
+          worldDy: world.dy - start.dy,
+        )
+        .apply();
     _loader.editsChanged();
     setState(_refreshPicked);
   }
@@ -795,7 +802,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final selected = _selectedElements;
     switch (kind) {
       case OperationKind.move:
-        setState(() => _moving = (_edits.length, _actionPoint, selected));
+        setState(() => _moving = (_editor.mark(), _actionPoint, selected));
         return;
       case OperationKind.copy:
         _copied = view.copy(
@@ -863,7 +870,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final to = _actionPoint;
     final (fromX, fromY) = copied.worldAnchor ?? copied.worldMiddle;
     _selectAfter(
-      _editor.paste(copied, worldDx: to.dx - fromX, worldDy: to.dy - fromY),
+      _editor
+          .paste(copied, worldDx: to.dx - fromX, worldDy: to.dy - fromY)
+          .apply(),
     );
   }
 
@@ -984,7 +993,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// line no longer stops there, and that goes with the rest of it as one
   /// change to undo.
   void _startContinuing(OsmWay line, OsmNode vertex) {
-    _drawingFrom = _edits.length;
+    _drawingFrom = _editor.mark();
     final tags = Map.of(vertex.tags);
     if (tags['fixme'] == 'continue') tags.remove('fixme');
     if (tags['noexit'] == 'yes') tags.remove('noexit');
@@ -1119,7 +1128,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
 
   /// Adds a point to the line being drawn, or finishes it.
   void _extendLine(Offset at) {
-    _drawingFrom ??= _edits.length;
+    _drawingFrom ??= _editor.mark();
     final world = _camera.toWorld(at, _size);
     // Clicking the point the line has reached finishes it, which is how
     // every editor ends a line. The points of a line being drawn are new and
@@ -1146,6 +1155,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       zoom: loadZoom,
     );
 
+    final mark = _editor.mark();
     final id =
         under?.id ??
         _editor
@@ -1154,6 +1164,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
               longitude: OsmMercator.wrappedLongitude(world.dx),
             )
             .id;
+    if (under == null) _pointMarks[id] = mark;
     setState(() => _drawing.add(id));
     _loader.editsChanged();
   }
@@ -1235,6 +1246,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       setState(() {
         _drawing.clear();
         _drawingFrom = null;
+        _pointMarks.clear();
         _continuing = null;
         _tool = MapTool.browse;
       });
@@ -1256,6 +1268,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     setState(() {
       _drawing.clear();
       _drawingFrom = null;
+      _pointMarks.clear();
       _tool = MapTool.browse;
     });
     _loader.editsChanged();
@@ -1271,6 +1284,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     setState(() {
       _drawing.clear();
       _drawingFrom = null;
+      _pointMarks.clear();
       _continuing = null;
       _tool = MapTool.browse;
     });
@@ -1284,7 +1298,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     // map was joined to, not made, and stays where it is.
     // Taken back rather than undone, so it cannot be redone: the line
     // being drawn does not know about it any more.
-    if (id < 0) _editor.undoSince(_edits.length - 1);
+    if (_pointMarks.remove(id) case final mark?) _editor.undoSince(mark);
     if (_drawing.isEmpty) _drawingFrom = null;
     setState(() {});
     _loader.editsChanged();
@@ -1583,7 +1597,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                           onSignIn: _signIn,
                           onCancel: _cancelSignIn,
                           onSignOut: _signOut,
-                          changes: _edits.upload.length,
+                          changes: _edits.toUpload().length,
                           onUpload: _upload,
                         ),
                         if (!_tooFarToEdit) ...[

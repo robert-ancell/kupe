@@ -96,7 +96,7 @@ void main() {
         latitude: 3,
         longitude: 4,
       );
-      return edits.upload;
+      return edits.toUpload();
     }
 
     testWidgets('lists every element that would change', (tester) async {
