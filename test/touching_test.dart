@@ -32,7 +32,7 @@ void main() {
 
   test('says a deleted node and the ways through it are drawn again', () {
     final edits = OsmEditHistory();
-    editing(edits, OsmEditorData.of([_node, _way])).deleteNode(_node);
+    editing(edits, OsmElementSource.of([_node, _way])).deleteNode(_node);
     final touched = touchedBy(edits, (id) => id == 1 ? [10] : const []);
     expect(touched, contains((OsmElementType.node, 1)));
     expect(touched, contains((OsmElementType.way, 10)));

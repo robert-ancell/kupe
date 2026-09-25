@@ -12,7 +12,7 @@ import 'package:osm/osm.dart';
 ///
 /// What an [OsmEditor] edits: the map as it was read, which the editor lays
 /// its changes over.
-class MapStore implements OsmEditorData {
+class MapStore implements OsmElementSource {
   final _nodes = <int, OsmNode>{};
   final _ways = <int, OsmWay>{};
   final _relations = <int, OsmRelation>{};

@@ -99,7 +99,7 @@ class _UploadDialogState extends State<UploadDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final changes = widget.upload.describe();
+    final changes = describeUpload(widget.upload);
     final ready = changes.isNotEmpty && widget.comment.text.trim().isNotEmpty;
     return AlertDialog(
       title: Text('Upload ${changes.length} change(s)'),
@@ -176,3 +176,29 @@ class _UploadDialogState extends State<UploadDialog> {
     );
   }
 }
+
+/// A line for each element of [upload], in the order they would be sent.
+///
+/// What the dialog lists. Short on purpose: what matters to whoever is
+/// reading is how many of what, and which ones, not the XML.
+List<String> describeUpload(OsmUpload upload) => [
+  for (final node in upload.createdNodes) 'Create node ${_name(node.id)}',
+  for (final way in upload.createdWays)
+    'Create way ${_name(way.id)} through ${way.nodeIds.length} node(s)',
+  for (final relation in upload.createdRelations)
+    'Create relation ${_name(relation.id)} of '
+        '${relation.members.length} member(s)',
+  // Changed rather than moved or retagged: what is sent is the element
+  // as it now stands, which says nothing of what it was.
+  for (final node in upload.changedNodes) 'Change node/${node.id}',
+  for (final way in upload.changedWays) 'Change way/${way.id}',
+  for (final relation in upload.changedRelations)
+    'Change relation/${relation.id}',
+  for (final relation in upload.deletedRelations)
+    'Delete relation/${relation.id}',
+  for (final way in upload.deletedWays) 'Delete way/${way.id}',
+  for (final node in upload.deletedNodes) 'Delete node/${node.id}',
+];
+
+/// What to call an element that has no id of its own yet.
+String _name(int id) => id < 0 ? 'new ($id)' : '$id';

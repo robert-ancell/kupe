@@ -402,7 +402,7 @@ class MapLoader {
     final giveUp = Completer<void>();
     _reading[tile] = giveUp;
     try {
-      final elements = await client.map(
+      final elements = await client.elementsIn(
         tile.bounds,
         abandon: giveUp.future,
         // Given up on, but the server had already begun answering. The work
