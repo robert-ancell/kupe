@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
 
+import '../contact.dart';
 import '../account/account.dart';
 import '../account/upload_dialog.dart';
 import '../data/map_loader.dart';
@@ -500,7 +501,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _imagery = ImageryLayer<ui.Image>(
       tiles: OsmImageryTiles(
         source: wanted,
-        fetch: widget.imageryFetch ?? httpFetch(),
+        contact: contact,
+        fetch: widget.imageryFetch,
         cache: widget.imageryCache,
       ),
       decode: _decode,

@@ -6,16 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'src/contact.dart';
 import 'src/data/map_loader.dart';
 import 'src/data/last_place.dart';
 import 'src/map/camera.dart';
 import 'src/map/map_view.dart';
-
-/// How Kupe introduces itself to OpenStreetMap's servers.
-///
-/// They ask to be told what is calling and where to complain about it. This
-/// is the application, not the person using it; nothing about them is sent.
-const contact = 'kupe +https://github.com/robert-ancell/kupe';
 
 /// What to draw when the editor layer index cannot be read at all.
 ///
@@ -53,7 +48,6 @@ Future<void> main(List<String> arguments) async {
 
   // Somewhere to keep what has been read. Without it the editor still works
   // and simply reads everything again each time.
-  final imageryFetch = httpFetch(contact: contact, concurrency: 6);
 
   OsmCache? cache;
   File? place;
@@ -65,7 +59,7 @@ Future<void> main(List<String> arguments) async {
     final directory = await getApplicationCacheDirectory();
     cache = await OsmCache.open(
       directory: Directory('${directory.path}/osm'),
-      fetch: httpFetch(contact: contact),
+      contact: contact,
     );
     place = File('${directory.path}/last-place.json');
     // Not in the cache: a token is a key to somebody's OpenStreetMap
@@ -131,7 +125,6 @@ Future<void> main(List<String> arguments) async {
       account: accountFile,
       imageryCache: cache?.imageryCache,
       imageryIndex: index,
-      imageryFetch: imageryFetch,
       presets: presets,
       countries: countries,
     ),
@@ -188,9 +181,7 @@ class KupeApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: MapView(
-          api: OsmApi(
-            fetch: httpFetch(contact: contact, concurrency: maximumInFlight),
-          ),
+          api: OsmApi(contact: contact, concurrency: maximumInFlight),
           initialCamera: camera,
           cache: cache,
           place: place,
