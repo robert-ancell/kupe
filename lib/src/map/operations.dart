@@ -132,7 +132,7 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
-  final disconnect = OsmDisconnect(view, selected);
+  final disconnect = OsmDisconnectOperation(view, selected);
   if (disconnect.available) {
     final points = selected.whereType<OsmNode>().isNotEmpty
         ? selected.whereType<OsmNode>().length
@@ -164,7 +164,12 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
-  final extract = OsmExtract(view, selected, presets: presets, here: here);
+  final extract = OsmExtractOperation(
+    view,
+    selected,
+    presets: presets,
+    here: here,
+  );
   if (extract.available) {
     final shapes = {for (final e in selected) view.geometryOf(e)};
     final shape = shapes.length == 1 ? shapes.single : null;
@@ -201,7 +206,7 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
-  final merge = OsmMerge(view, selected);
+  final merge = OsmMergeOperation(view, selected);
   if (merge.available) {
     offered.add(
       OfferedOperation(
@@ -246,7 +251,7 @@ List<OfferedOperation> offeredOperations(
     ),
   );
 
-  final reverse = OsmReverse(view, selected);
+  final reverse = OsmReverseOperation(view, selected);
   if (reverse.available) {
     offered.add(
       OfferedOperation(
@@ -265,7 +270,7 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
-  final split = OsmSplit(view, selected);
+  final split = OsmSplitOperation(view, selected);
   if (split.available) {
     final ways = split.ways.length <= 1 ? 'single' : 'multiple';
     final nodes = selected.whereType<OsmNode>().length == 1
@@ -317,7 +322,7 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
-  final delete = OsmDelete(view, selected);
+  final delete = OsmDeleteOperation(view, selected);
   offered.add(
     OfferedOperation(
       kind: OperationKind.delete,

@@ -792,7 +792,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         _startContinuing(line, vertex);
         return;
       case OperationKind.extract:
-        final points = OsmExtract(
+        final points = OsmExtractOperation(
           view,
           selected,
           presets: widget.presets?.value,
@@ -811,22 +811,22 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           _refreshPicked();
         });
       case OperationKind.disconnect:
-        OsmDisconnect(view, selected).apply();
+        OsmDisconnectOperation(view, selected).apply();
         _loader.editsChanged();
         setState(_refreshPicked);
       case OperationKind.merge:
-        _selectAfter(OsmMerge(view, selected).apply());
+        _selectAfter(OsmMergeOperation(view, selected).apply());
       case OperationKind.split:
-        final ways = OsmSplit(view, selected).apply();
+        final ways = OsmSplitOperation(view, selected).apply();
         // The nodes and the pieces, so that they can be disconnected
         // straight away if that is what is wanted next.
         _selectAfter([...selected.whereType<OsmNode>(), ...ways]);
       case OperationKind.reverse:
-        OsmReverse(view, selected).apply();
+        OsmReverseOperation(view, selected).apply();
         _loader.editsChanged();
         setState(_refreshPicked);
       case OperationKind.delete:
-        OsmDelete(view, selected).apply();
+        OsmDeleteOperation(view, selected).apply();
         _loader.editsChanged();
         setState(() {
           _selected.clear();
