@@ -246,7 +246,8 @@ PickedNode? nodeAt(
   var nearestDistance = double.infinity;
 
   void consider(OsmNode node) {
-    final x = Mercator.x(node.longitude);
+    // The copy round the world nearest the pointer.
+    final x = Mercator.nearest(Mercator.x(node.longitude), world.dx);
     final y = Mercator.y(node.latitude);
     final distance = math.sqrt(
       (x - world.dx) * (x - world.dx) + (y - world.dy) * (y - world.dy),
@@ -326,7 +327,9 @@ PickedWay? wayAt(
     // distance before anything is compared.
     final width = pickWidthOf(way);
     final half = width / 2 / camera.scale;
-    final distance = _distanceTo(points, world) - half;
+    // The pointer brought round to the same side of the world as the line.
+    final at = Offset(Mercator.nearest(world.dx, points[0]), world.dy);
+    final distance = _distanceTo(points, at) - half;
     if (distance > reach || distance >= nearestDistance) continue;
 
     nearestDistance = distance;
@@ -362,15 +365,13 @@ double pickWidthOf(OsmWay way) {
 List<OsmTile> _tilesAround(Offset world, double reach, int zoom) {
   final middle = OsmTile.of(zoom, world.dx, world.dy);
   final across = 1 << zoom;
-  return [
+  // Round the world east to west, but not over the top or the bottom.
+  return {
     for (var dy = -1; dy <= 1; dy++)
       for (var dx = -1; dx <= 1; dx++)
-        if (middle.x + dx >= 0 &&
-            middle.x + dx < across &&
-            middle.y + dy >= 0 &&
-            middle.y + dy < across)
-          OsmTile(zoom, middle.x + dx, middle.y + dy),
-  ];
+        if (middle.y + dy >= 0 && middle.y + dy < across)
+          OsmTile(zoom, (middle.x + dx) % across, middle.y + dy),
+  }.toList();
 }
 
 /// A way's nodes in world coordinates, or null if any of them is missing.
@@ -386,7 +387,12 @@ List<double>? worldPointsOf(OsmWay way, MapStore store, [OsmEdits? edits]) {
     if (edits?.isGone(OsmElementType.node, id) ?? false) continue;
     final node = edits?.changedNode(id) ?? store.nodes[id];
     if (node == null) return null;
-    points.add(Mercator.x(node.longitude));
+    // Each beside the one before, so a way across the antimeridian is the
+    // short way it is rather than one right round the world.
+    final x = Mercator.x(node.longitude);
+    points.add(
+      points.isEmpty ? x : Mercator.nearest(x, points[points.length - 2]),
+    );
     points.add(Mercator.y(node.latitude));
   }
   return points;

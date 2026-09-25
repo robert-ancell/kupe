@@ -289,12 +289,17 @@ class MapLoader {
         .map((tile) => tile.at)
         .reduce((a, b) => a.isBefore(b) ? a : b);
 
-    final List<OsmChangeset>? changesets;
+    // Asked for each side of the antimeridian when the view is across it.
+    List<OsmChangeset>? changesets = [];
     try {
-      changesets = await api.changesetsIn(
-        camera.groundBounds(_size),
-        since: since,
-      );
+      for (final bounds in camera.groundBounds(_size)) {
+        final some = await api.changesetsIn(bounds, since: since);
+        if (some == null) {
+          changesets = null;
+          break;
+        }
+        changesets!.addAll(some);
+      }
     } on OsmHttpException {
       // Not being able to check is not a reason to throw away what is held.
       return;
@@ -349,8 +354,11 @@ class MapLoader {
   bool _isVisible(OsmTile tile, Camera camera) {
     if (_size.isEmpty) return false;
     final view = camera.worldBounds(_size);
-    return tile.worldX < view.right &&
-        tile.worldX + tile.size > view.left &&
+    // The copy of the tile round the world nearest the view.
+    final left =
+        Mercator.nearest(tile.worldX + tile.size / 2, camera.x) - tile.size / 2;
+    return left < view.right &&
+        left + tile.size > view.left &&
         tile.worldY < view.bottom &&
         tile.worldY + tile.size > view.top;
   }

@@ -640,7 +640,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       _edits.moveNode(
         held.node,
         latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
-        longitude: Mercator.longitude(world.dx),
+        longitude: Mercator.wrappedLongitude(world.dx),
         continuing: !first,
       );
       _refreshPicked();
@@ -672,7 +672,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     var right = double.negativeInfinity, bottom = double.negativeInfinity;
     void cover(OsmNode? node) {
       if (node == null) return;
-      final x = Mercator.x(node.longitude), y = Mercator.y(node.latitude);
+      // At the copy round the world nearest the view, as it is drawn.
+      final x = Mercator.nearest(Mercator.x(node.longitude), _camera.x);
+      final y = Mercator.y(node.latitude);
       if (x < left) left = x;
       if (x > right) right = x;
       if (y < top) top = y;
@@ -1096,7 +1098,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final world = _camera.toWorld(at, _size);
     final made = _edits.createNode(
       latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
-      longitude: Mercator.longitude(world.dx),
+      longitude: Mercator.wrappedLongitude(world.dx),
     );
     _selectOnly(made);
     setState(() => _tool = MapTool.browse);
@@ -1137,7 +1139,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         _edits
             .createNode(
               latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
-              longitude: Mercator.longitude(world.dx),
+              longitude: Mercator.wrappedLongitude(world.dx),
             )
             .id;
     setState(() => _drawing.add(id));

@@ -428,7 +428,7 @@ class MapPainter extends CustomPainter {
     final source = tile.source;
     if (source.vertices == 0 && source.points.isEmpty) return false;
     final bounds = source.bounds;
-    final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
+    final origin = camera.tileToScreen(tile.id, size);
     final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
     final drawn = Rect.fromLTRB(
       origin.dx + bounds.left * scale,
@@ -451,7 +451,7 @@ class MapPainter extends CustomPainter {
     final placed = tile.pointsAt(unitsPerPixel, sprite);
     if (placed == null) return 0;
     final (transforms, rects) = placed;
-    final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
+    final origin = camera.tileToScreen(tile.id, size);
     final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
     canvas.save();
     canvas.translate(origin.dx, origin.dy);
@@ -480,7 +480,7 @@ class MapPainter extends CustomPainter {
     var calls = 0;
     for (final (index, vertices) in uploaded) {
       if (index != layer) continue;
-      final origin = camera.toScreen(tile.id.worldX, tile.id.worldY, size);
+      final origin = camera.tileToScreen(tile.id, size);
       final scale = camera.pixelsPerTile(tile.id.zoom) / tileExtent;
       canvas.save();
       canvas.translate(origin.dx, origin.dy);
@@ -591,7 +591,7 @@ class MapPainter extends CustomPainter {
   /// standing in for it.
   void _drawImagery(Canvas canvas, Size size, ImageryPiece<ui.Image> piece) {
     final tile = piece.tile;
-    final origin = camera.toScreen(tile.worldX, tile.worldY, size);
+    final origin = camera.tileToScreen(tile, size);
     final side = camera.pixelsPerTile(tile.zoom);
     // Half a pixel over each edge, so that tiles landing on fractional pixels
     // do not leave a hairline of background between them.

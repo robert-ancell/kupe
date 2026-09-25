@@ -458,4 +458,34 @@ void _afterDeleting() {
     );
     expect(picked, isNotNull);
   });
+
+  test('picks a line across the antimeridian from either side of it', () {
+    const nodes = [
+      OsmNode(id: 1, latitude: _latitude, longitude: 179.9995),
+      OsmNode(id: 2, latitude: _latitude, longitude: -179.9995),
+    ];
+    const way = OsmWay(
+      id: 3,
+      nodeIds: [1, 2],
+      tags: {'highway': 'residential'},
+    );
+    final store = MapStore();
+    store.add(OsmTile.at(16, _latitude, 179.9995), [...nodes, way]);
+    for (final longitude in [179.9999, -179.9999]) {
+      final camera = Camera.at(
+        latitude: _latitude,
+        longitude: longitude,
+        zoom: 18,
+      );
+      final picked = wayAt(_middle, camera, _size, store);
+      expect(picked?.way.id, 3, reason: 'from $longitude');
+      final node = nodeAt(
+        camera.toScreen(Mercator.x(-179.9995), Mercator.y(_latitude), _size),
+        camera,
+        _size,
+        store,
+      );
+      expect(node?.node.id, 2, reason: 'from $longitude');
+    }
+  });
 }

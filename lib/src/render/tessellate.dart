@@ -240,12 +240,18 @@ OsmTile _tileOf(OsmNode node, int zoom) =>
 
 /// Projects nodes into the tile's own coordinates, where a whole tile is
 /// [tileExtent] across.
+///
+/// Each at its copy round the world nearest the tile, so that a way across
+/// the antimeridian is built as the short way it is rather than one right
+/// round the world.
 List<double> _project(List<OsmNode> nodes, OsmTile tile) {
   final scale = tileExtent / tile.size;
+  final middle = tile.worldX + tile.size / 2;
   final out = List<double>.filled(nodes.length * 2, 0);
   for (var i = 0; i < nodes.length; i++) {
     final node = nodes[i];
-    out[i * 2] = (Mercator.x(node.longitude) - tile.worldX) * scale;
+    final x = Mercator.nearest(Mercator.x(node.longitude), middle);
+    out[i * 2] = (x - tile.worldX) * scale;
     out[i * 2 + 1] = (Mercator.y(node.latitude) - tile.worldY) * scale;
   }
   return out;

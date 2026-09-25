@@ -389,4 +389,28 @@ void main() {
       expect(marksIn(_build(road(), zoom: 14)), near);
     });
   });
+
+  test('builds a way across the antimeridian short, not round the world', () {
+    const nodes = [
+      OsmNode(id: 1, latitude: _latitude, longitude: 179.9995),
+      OsmNode(id: 2, latitude: _latitude, longitude: -179.9995),
+    ];
+    const way = OsmWay(
+      id: 10,
+      nodeIds: [1, 2],
+      tags: {'highway': 'residential'},
+    );
+    final report = _build(
+      OsmSubset(
+        matches: const [way],
+        nodes: {for (final node in nodes) node.id: node},
+        ways: const {10: way},
+        relations: const {},
+      ),
+    );
+    expect(report.tiles, isNotEmpty);
+    for (final tile in report.tiles.values) {
+      expect(tile.bounds.width, lessThan(tileExtent));
+    }
+  });
 }

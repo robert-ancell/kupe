@@ -11,6 +11,12 @@ const tilePixels = 256.0;
 /// The centre is held in world coordinates rather than degrees so that
 /// panning is a plain subtraction, and the zoom is continuous rather than
 /// stepped so that pinching is smooth.
+///
+/// The world goes round east to west, so the centre is always brought back
+/// onto it and everything is drawn at whichever of its copies is nearest the
+/// centre: panning east past the antimeridian carries on into the far east
+/// of Russia rather than off the end of the map. North to south it stops, at
+/// the edge of the square the world is drawn on.
 class Camera {
   /// The world x at the middle of the view.
   final double x;
@@ -22,8 +28,11 @@ class Camera {
   /// across at zoom 0 and twice that at zoom 1.
   final double zoom;
 
-  /// Creates a camera.
-  const Camera({required this.x, required this.y, required this.zoom});
+  /// Creates a camera over world ([x], [y]), which is brought back onto the
+  /// world.
+  Camera({required double x, required double y, required this.zoom})
+    : x = Mercator.wrap(x),
+      y = y.clamp(0.0, 1.0);
 
   /// A camera looking at a place on the earth.
   factory Camera.at({
@@ -41,19 +50,38 @@ class Camera {
   /// The longitude at the middle of the view.
   double get longitude => Mercator.longitude(x);
 
-  /// Where world position ([worldX], [worldY]) falls on a view of [size].
+  /// Where world position ([worldX], [worldY]) falls on a view of [size], at
+  /// whichever of its copies round the world is nearest the middle.
   Offset toScreen(double worldX, double worldY, Size size) => Offset(
-    (worldX - x) * scale + size.width / 2,
+    (Mercator.nearest(worldX, x) - x) * scale + size.width / 2,
     (worldY - y) * scale + size.height / 2,
   );
 
+  /// Where the north west corner of [tile] falls on a view of [size], at
+  /// whichever of the tile's copies round the world is nearest the middle.
+  ///
+  /// By the tile's middle, not its corner: a tile far out is much of the
+  /// world across, and the copy of its corner nearest the middle need not
+  /// be the corner of the copy of the tile that is.
+  Offset tileToScreen(OsmTile tile, Size size) {
+    final half = tile.size / 2;
+    final middle = toScreen(tile.worldX + half, tile.worldY + half, size);
+    return middle - Offset(half * scale, half * scale);
+  }
+
   /// The world position under [point] on a view of [size].
+  ///
+  /// Not brought back onto the world, so that positions either side of the
+  /// antimeridian on the same view are still next to each other. Anything
+  /// put there has to be brought back first, by [Mercator.wrappedLongitude].
+
   Offset toWorld(Offset point, Size size) => Offset(
     (point.dx - size.width / 2) / scale + x,
     (point.dy - size.height / 2) / scale + y,
   );
 
-  /// The part of the world a view of [size] shows.
+  /// The part of the world a view of [size] shows, which runs past 0 or 1
+  /// when it is across the antimeridian.
   Rect worldBounds(Size size) {
     final topLeft = toWorld(Offset.zero, size);
     final bottomRight = toWorld(Offset(size.width, size.height), size);
@@ -62,14 +90,24 @@ class Camera {
 
   /// The ground a view of [size] shows, which is what the API is asked
   /// about.
-  OsmBounds groundBounds(Size size) {
+  ///
+  /// Two boxes when the view is across the antimeridian, one either side of
+  /// it, since a box on the ground cannot go round the back of the world.
+  List<OsmBounds> groundBounds(Size size) {
     final view = worldBounds(size);
-    return OsmBounds(
-      minLatitude: Mercator.latitude(view.bottom.clamp(0.0, 1.0)),
-      minLongitude: Mercator.longitude(view.left.clamp(0.0, 1.0)),
-      maxLatitude: Mercator.latitude(view.top.clamp(0.0, 1.0)),
-      maxLongitude: Mercator.longitude(view.right.clamp(0.0, 1.0)),
+    final minLatitude = Mercator.latitude(view.bottom.clamp(0.0, 1.0));
+    final maxLatitude = Mercator.latitude(view.top.clamp(0.0, 1.0));
+    OsmBounds box(double left, double right) => OsmBounds(
+      minLatitude: minLatitude,
+      minLongitude: Mercator.longitude(left),
+      maxLatitude: maxLatitude,
+      maxLongitude: Mercator.longitude(right),
     );
+    if (view.width >= 1) return [box(0, 1)];
+    final left = Mercator.wrap(view.left);
+    final right = left + view.width;
+    if (right <= 1) return [box(left, right)];
+    return [box(left, 1), box(0, right - 1)];
   }
 
   /// The tiles at [zoom] needed to cover a view of [size].
@@ -79,13 +117,20 @@ class Camera {
   List<OsmTile> tilesFor(Size size, int tileZoom, {int margin = 0}) {
     final bounds = worldBounds(size);
     final across = 1 << tileZoom;
-    final left = ((bounds.left * across).floor() - margin).clamp(0, across - 1);
-    final right = ((bounds.right * across).ceil() + margin).clamp(0, across);
+    // Columns go round the world, and a view wider than it wants each only
+    // once. Rows stop at the top and bottom.
+    var left = (bounds.left * across).floor() - margin;
+    var right = (bounds.right * across).ceil() + margin;
+    if (right - left > across) {
+      left = 0;
+      right = across;
+    }
     final top = ((bounds.top * across).floor() - margin).clamp(0, across - 1);
     final bottom = ((bounds.bottom * across).ceil() + margin).clamp(0, across);
     return [
       for (var ty = top; ty < bottom; ty++)
-        for (var tx = left; tx < right; tx++) OsmTile(tileZoom, tx, ty),
+        for (var tx = left; tx < right; tx++)
+          OsmTile(tileZoom, tx % across, ty),
     ];
   }
 
@@ -106,7 +151,7 @@ class Camera {
     final after = moved.toWorld(focus, size);
     return Camera(
       x: moved.x + anchor.dx - after.dx,
-      y: (moved.y + anchor.dy - after.dy).clamp(0.0, 1.0),
+      y: moved.y + anchor.dy - after.dy,
       zoom: moved.zoom,
     );
   }
