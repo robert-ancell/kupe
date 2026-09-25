@@ -162,6 +162,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _loader.store,
     history: _edits,
     presets: widget.presets?.value,
+    countryCoder: widget.countries?.value,
     isArea: enclosesArea,
   );
   late final MapLoader _loader = MapLoader(
@@ -665,7 +666,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   }
 
   void _presetsChanged() {
-    _editor.presets = widget.presets?.value;
+    _editor
+      ..presets = widget.presets?.value
+      ..countryCoder = widget.countries?.value;
     if (mounted) setState(() {});
   }
 
@@ -720,8 +723,6 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     return offeredOperations(
       _editor,
       selected,
-      presets: widget.presets?.value,
-      here: selected.isEmpty ? const {} : _regionsOf(selected.first),
       tooLarge: selected.isNotEmpty && _selectionTooLarge,
       copied: _copied,
     );
@@ -742,9 +743,13 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// however long the pointer wanders it comes to one change to undo.
   void _followPointer(Offset at) {
     final (mark, start, elements) = _moving!;
-    _edits.undoSince(mark);
+    _editor.undoSince(mark);
     final world = _camera.toWorld(at, _size);
-    _editor.move(elements, dx: world.dx - start.dx, dy: world.dy - start.dy);
+    _editor.move(
+      elements,
+      worldDx: world.dx - start.dx,
+      worldDy: world.dy - start.dy,
+    );
     _loader.editsChanged();
     setState(_refreshPicked);
   }
@@ -752,7 +757,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Puts back what was being moved where it was.
   void _cancelMove() {
     final (mark, _, _) = _moving!;
-    _edits.undoSince(mark);
+    _editor.undoSince(mark);
     _loader.editsChanged();
     setState(() {
       _moving = null;
@@ -788,7 +793,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       case OperationKind.copy:
         _copied = view.copy(
           selected,
-          anchor: (_actionPoint.dx, _actionPoint.dy),
+          worldAnchor: (_actionPoint.dx, _actionPoint.dy),
         );
         return;
       case OperationKind.paste:
@@ -800,9 +805,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         _startContinuing(line, vertex);
         return;
       case OperationKind.extract:
-        final points = view
-            .extract(selected, here: _regionsOf(selected.first))
-            .apply();
+        final points = view.extract(selected).apply();
         _loader.editsChanged();
         setState(() {
           _selected.clear();
@@ -851,8 +854,10 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final copied = _copied;
     if (copied == null) return;
     final to = _actionPoint;
-    final (fromX, fromY) = copied.anchor ?? copied.middle;
-    _selectAfter(_editor.paste(copied, dx: to.dx - fromX, dy: to.dy - fromY));
+    final (fromX, fromY) = copied.worldAnchor ?? copied.worldMiddle;
+    _selectAfter(
+      _editor.paste(copied, worldDx: to.dx - fromX, worldDy: to.dy - fromY),
+    );
   }
 
   /// Selects [elements] as they now stand once an operation has changed
@@ -988,23 +993,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _loader.editsChanged();
   }
 
-  /// Every region [element] is in, by where it is: a node where it stands,
-  /// and a way where it starts. Nothing while the borders are not known, or
-  /// for something with nowhere to stand, which leaves only what is meant
-  /// for everywhere.
-  Set<String> _regionsOf(OsmElement element) {
-    final countries = widget.countries?.value;
-    if (countries == null) return const {};
-    final node = switch (element) {
-      OsmNode() => _edits.changedNode(element.id) ?? element,
-      OsmWay() when element.nodeIds.isNotEmpty =>
-        _edits.changedNode(element.nodeIds.first) ??
-            _loader.store.nodes[element.nodeIds.first],
-      _ => null,
-    };
-    if (node == null) return const {};
-    return countries.codesAt(node.latitude, node.longitude);
-  }
+  /// Every region [element] is in; see [OsmEditor.regionsOf].
+  Set<String> _regionsOf(OsmElement element) => _editor.regionsOf(element);
 
   /// Gives each element its new tags, all as one change.
   ///
@@ -1097,7 +1087,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final made = insertNodeInto(
       line.way,
       _loader.store,
-      _edits,
+      _editor,
       worldX: world.dx,
       worldY: world.dy,
     );
@@ -1150,7 +1140,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
 
     final id =
         under?.id ??
-        _edits
+        _editor
             .createNode(
               latitude: OsmMercator.latitude(world.dy.clamp(0.0, 1.0)),
               longitude: OsmMercator.wrappedLongitude(world.dx),
@@ -1229,10 +1219,10 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           ...line.nodeIds,
           if (!fromStart) ...added,
         ]);
-        if (from != null) _edits.combineSince(from);
+        if (from != null) _editor.combineSince(from);
         _selectOnly(_editor.way(id)!);
       } else if (from != null) {
-        _edits.undoSince(from);
+        _editor.undoSince(from);
       }
       setState(() {
         _drawing.clear();
@@ -1249,11 +1239,11 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       );
       // Drawn a point at a time, but a line once it is finished, and a line
       // is what should come back if it is undone.
-      if (from != null) _edits.combineSince(from);
+      if (from != null) _editor.combineSince(from);
       _selectOnly(way);
     } else if (from != null) {
       // Not enough of a line to keep, so its points go with it.
-      _edits.undoSince(from);
+      _editor.undoSince(from);
     }
     setState(() {
       _drawing.clear();
@@ -1268,7 +1258,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     if (_drawing.isEmpty && _tool == MapTool.browse) return;
     final from = _drawingFrom;
     if (from != null) {
-      _edits.undoSince(from);
+      _editor.undoSince(from);
     }
     setState(() {
       _drawing.clear();
@@ -1286,7 +1276,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     // map was joined to, not made, and stays where it is.
     // Taken back rather than undone, so it cannot be redone: the line
     // being drawn does not know about it any more.
-    if (id < 0) _edits.undoSince(_edits.length - 1);
+    if (id < 0) _editor.undoSince(_edits.length - 1);
     if (_drawing.isEmpty) _drawingFrom = null;
     setState(() {});
     _loader.editsChanged();

@@ -211,7 +211,7 @@ void main() {
       ],
     );
     expect(view.relationsUsing(OsmElementType.way, 10).map((r) => r.id), [30]);
-    view.history.setRelationMembers(view.relation(30)!, const []);
+    view.setRelationMembers(view.relation(30)!, const []);
     expect(view.relationsUsing(OsmElementType.way, 10), isEmpty);
   });
 

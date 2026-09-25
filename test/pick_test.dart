@@ -4,6 +4,9 @@ import 'package:kupe/src/data/map_store.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/map/pick.dart';
 import 'package:osm/osm.dart';
+
+import 'editing.dart';
+
 import 'package:test/test.dart';
 
 const _size = Size(800, 600);
@@ -386,7 +389,7 @@ void _refreshing() {
       final edits = OsmEditHistory();
       final picked = pickAt(_nodeOn(0), _camera, _size, store)! as PickedNode;
 
-      edits.moveNode(
+      editing(edits).moveNode(
         picked.node,
         latitude: _latitude + 0.001,
         longitude: _longitude + 0.001,
@@ -411,7 +414,7 @@ void _refreshing() {
         width: 5,
       );
 
-      edits.moveNode(
+      editing(edits).moveNode(
         picked.node,
         latitude: _latitude + 0.001,
         longitude: _longitude,
@@ -441,11 +444,10 @@ void _afterDeleting() {
   test('takes hold of a line after a node is taken out of it', () {
     final store = _road(count: 5);
     final edits = OsmEditHistory();
-    final way = store.ways[1]!;
 
     // Take out a node in the middle of it.
     final node = store.nodes[102]!;
-    edits.deleteNode(node, from: [way]);
+    editing(edits, store).deleteNode(node);
     expect(edits.changedWay(1)!.nodeIds, [100, 101, 103, 104]);
 
     // The line is still there to take hold of.

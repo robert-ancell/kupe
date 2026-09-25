@@ -6,6 +6,8 @@ import 'package:kupe/src/account/account.dart';
 import 'package:kupe/src/account/upload_dialog.dart';
 import 'package:osm/osm.dart';
 
+import 'editing.dart';
+
 /// Puts [child] on screen on its own, for the windows this file is about.
 Future<void> _show(WidgetTester tester, Widget child) =>
     tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
@@ -81,8 +83,9 @@ void main() {
   group('uploading', () {
     /// Some changes to show: a node made, and one moved.
     OsmUpload changes() {
-      final edits = OsmEditHistory()..createNode(latitude: 1, longitude: 2);
-      edits.moveNode(
+      final edits = OsmEditHistory();
+      editing(edits).createNode(latitude: 1, longitude: 2);
+      editing(edits).moveNode(
         const OsmNode(
           id: 7,
           latitude: 1,

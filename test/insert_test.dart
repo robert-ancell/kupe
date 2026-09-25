@@ -2,6 +2,9 @@ import 'package:kupe/src/data/map_store.dart';
 import 'package:kupe/src/edit/insert.dart';
 import 'package:kupe/src/edit/ways.dart';
 import 'package:osm/osm.dart';
+
+import 'editing.dart';
+
 import 'package:test/test.dart';
 
 const _latitude = -36.85;
@@ -38,7 +41,7 @@ void main() {
     final made = insertNodeInto(
       road,
       store,
-      edits,
+      editing(edits, store),
       worldX: _middleX,
       worldY: _middleY,
     );
@@ -64,7 +67,7 @@ void main() {
     final made = insertNodeInto(
       road,
       store,
-      edits,
+      editing(edits, store),
       worldX: OsmMercator.x(174.763),
       worldY: _middleY,
     );
@@ -86,7 +89,7 @@ void main() {
     final made = insertNodeInto(
       road,
       store,
-      edits,
+      editing(edits, store),
       worldX: _middleX,
       worldY: _middleY,
     );
@@ -107,7 +110,7 @@ void main() {
     final made = insertNodeInto(
       road,
       store,
-      edits,
+      editing(edits, store),
       worldX: _middleX,
       worldY: _middleY,
     );
@@ -127,7 +130,13 @@ void main() {
     );
     final edits = OsmEditHistory();
 
-    insertNodeInto(road, store, edits, worldX: _middleX, worldY: _middleY);
+    insertNodeInto(
+      road,
+      store,
+      editing(edits, store),
+      worldX: _middleX,
+      worldY: _middleY,
+    );
     expect(edits.changedWay(11), isNull);
   });
 
@@ -144,14 +153,14 @@ void main() {
     final made = insertNodeInto(
       road,
       store,
-      edits,
+      editing(edits, store),
       worldX: _middleX,
       worldY: _middleY,
     )!;
 
     // One change for the node and one for each line it went into.
     while (edits.isNotEmpty) {
-      edits.undo();
+      editing(edits).undo();
     }
     expect(edits.changedWay(10), isNull);
     expect(edits.changedWay(11), isNull);
@@ -163,7 +172,13 @@ void main() {
     final store = _storeWith([road]);
     final edits = OsmEditHistory();
     expect(
-      insertNodeInto(road, store, edits, worldX: _middleX, worldY: _middleY),
+      insertNodeInto(
+        road,
+        store,
+        editing(edits, store),
+        worldX: _middleX,
+        worldY: _middleY,
+      ),
       isNull,
     );
     expect(edits.isEmpty, isTrue);
@@ -184,7 +199,7 @@ void _deleting() {
       final made = insertNodeInto(
         road,
         store,
-        edits,
+        editing(edits, store),
         worldX: _middleX,
         worldY: _middleY,
       )!;
@@ -192,7 +207,7 @@ void _deleting() {
 
       // The store knows nothing of a node made a moment ago, so asking it
       // alone would leave the line running through something that has gone.
-      edits.deleteNode(made, from: waysUsingNode(made.id, store, edits));
+      editing(edits, store).deleteNode(made);
       expect(edits.changedWay(10)!.nodeIds, [1, 2]);
     });
 
@@ -210,7 +225,7 @@ void _deleting() {
     test('finds a way drawn around a node since', () {
       final store = _storeWith(const []);
       final edits = OsmEditHistory();
-      final way = edits.createWay(nodeIds: [1, 2]);
+      final way = editing(edits).createWay(nodeIds: [1, 2]);
       expect(waysUsingNode(1, store, edits).single.id, way.id);
     });
 
@@ -222,7 +237,7 @@ void _deleting() {
       );
       final store = _storeWith([road]);
       final edits = OsmEditHistory();
-      edits.setWayNodes(road, [1]);
+      editing(edits).setWayNodes(road, [1]);
       expect(waysUsingNode(2, store, edits), isEmpty);
     });
   });

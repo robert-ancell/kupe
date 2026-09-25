@@ -30,10 +30,11 @@ class _Along {
 OsmNode? insertNodeInto(
   OsmWay way,
   MapStore store,
-  OsmEditHistory edits, {
+  OsmEditor editor, {
   required double worldX,
   required double worldY,
 }) {
+  final edits = editor.history;
   final running = edits.changedWay(way.id) ?? way;
   final where = _alongWay(running, store, edits, worldX, worldY);
   if (where == null) return null;
@@ -43,7 +44,7 @@ OsmNode? insertNodeInto(
 
   final start = _nodeOf(before, store, edits)!;
   final end = _nodeOf(after, store, edits)!;
-  final node = edits.createNode(
+  final node = editor.createNode(
     latitude: start.latitude + (end.latitude - start.latitude) * where.fraction,
     longitude:
         start.longitude + (end.longitude - start.longitude) * where.fraction,
@@ -55,7 +56,7 @@ OsmNode? insertNodeInto(
     if (other == null) continue;
     final at = _segmentBetween(other, before, after);
     if (at == null) continue;
-    edits.setWayNodes(other, [
+    editor.setWayNodes(other, [
       ...other.nodeIds.sublist(0, at + 1),
       node.id,
       ...other.nodeIds.sublist(at + 1),

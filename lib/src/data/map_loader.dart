@@ -6,6 +6,7 @@ import 'package:osm/osm.dart';
 
 import '../map/camera.dart';
 import '../render/tessellate.dart';
+import '../edit/touching.dart';
 import '../render/tile_mesh.dart';
 import 'last_place.dart';
 import 'map_store.dart';
@@ -137,7 +138,7 @@ class MapLoader {
   /// changed and has been put back, and only when the changes themselves
   /// change rather than on every frame of a drag.
   void editsChanged() {
-    final now = edits.touching(store.waysUsing);
+    final now = touchedBy(edits, store.waysUsing);
     final affected = {..._hidden, ...now};
     _hidden = now;
     if (affected.isEmpty) {
@@ -290,16 +291,14 @@ class MapLoader {
         .reduce((a, b) => a.isBefore(b) ? a : b);
 
     // Asked for each side of the antimeridian when the view is across it.
-    List<OsmChangeset>? changesets = [];
+    List<OsmChangeset>? changesets;
     try {
-      for (final bounds in camera.groundBounds(_size)) {
-        final some = await client.changesetsIn(bounds, since: since);
-        if (some == null) {
-          changesets = null;
-          break;
-        }
-        changesets!.addAll(some);
-      }
+      changesets = [
+        for (final bounds in camera.groundBounds(_size))
+          ...await client.changesetsIn(bounds, since: since),
+      ];
+    } on OsmTooManyChangesetsException {
+      changesets = null;
     } on OsmHttpException {
       // Not being able to check is not a reason to throw away what is held.
       return;

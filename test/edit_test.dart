@@ -9,6 +9,9 @@ import 'package:kupe/src/edit/edited_geometry.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/style/style.dart';
 import 'package:osm/osm.dart';
+
+import 'editing.dart';
+
 import 'package:test/test.dart';
 
 const _size = Size(800, 600);
@@ -83,7 +86,8 @@ void main() {
     final loader = await _loaded(edits);
     final node = _someNode(loader);
 
-    edits.moveNode(node, latitude: _latitude + 0.0002, longitude: _longitude);
+    editing(edits)
+        .moveNode(node, latitude: _latitude + 0.0002, longitude: _longitude);
     loader.editsChanged();
 
     // The node and every way running through it.
@@ -96,7 +100,8 @@ void main() {
     final loader = await _loaded(edits);
     final node = _someNode(loader);
 
-    edits.moveNode(node, latitude: _latitude + 0.0002, longitude: _longitude);
+    editing(edits)
+        .moveNode(node, latitude: _latitude + 0.0002, longitude: _longitude);
     final drawn = editedGeometry(loader.store, edits);
     expect(drawn.ways, isNotEmpty);
     expect(drawn.nodes.length, 1);
@@ -112,7 +117,7 @@ void main() {
     final loader = await _loaded(edits);
     final node = _someNode(loader);
 
-    edits.moveNode(node, latitude: -36.9, longitude: 174.9);
+    editing(edits).moveNode(node, latitude: -36.9, longitude: 174.9);
     loader.editsChanged();
 
     // The store still holds what OpenStreetMap sent.
@@ -130,7 +135,7 @@ void main() {
     final node = _someNode(loader);
     final before = cache.tiles.map((t) => '${t.id}:${t.bytes}').toList();
 
-    edits.moveNode(node, latitude: -36.9, longitude: 174.9);
+    editing(edits).moveNode(node, latitude: -36.9, longitude: 174.9);
     loader.editsChanged();
     await _drain();
 
@@ -148,11 +153,12 @@ void main() {
     final loader = await _loaded(edits);
     final node = _someNode(loader);
 
-    edits.moveNode(node, latitude: _latitude + 0.0002, longitude: _longitude);
+    editing(edits)
+        .moveNode(node, latitude: _latitude + 0.0002, longitude: _longitude);
     loader.editsChanged();
     expect(loader.hidden, isNotEmpty);
 
-    edits.undo();
+    editing(edits).undo();
     loader.editsChanged();
     expect(loader.hidden, isEmpty);
     expect(editedGeometry(loader.store, edits).isEmpty, isTrue);
@@ -164,12 +170,13 @@ void main() {
     final node = _someNode(loader);
     final before = loader.tiles.fold(0, (sum, tile) => sum + tile.vertices);
 
-    edits.moveNode(node, latitude: _latitude + 0.0002, longitude: _longitude);
+    editing(edits)
+        .moveNode(node, latitude: _latitude + 0.0002, longitude: _longitude);
     loader.editsChanged();
     final hidden = loader.tiles.fold(0, (sum, tile) => sum + tile.vertices);
     expect(hidden, lessThan(before), reason: 'the way is out of the tile');
 
-    edits.undo();
+    editing(edits).undo();
     loader.editsChanged();
     expect(loader.tiles.fold(0, (sum, tile) => sum + tile.vertices), before);
   });
@@ -179,7 +186,8 @@ void main() {
     final loader = await _loaded(edits);
     final asked = loader.requests;
 
-    edits.moveNode(_someNode(loader), latitude: -36.9, longitude: 174.9);
+    editing(edits)
+        .moveNode(_someNode(loader), latitude: -36.9, longitude: 174.9);
     loader.editsChanged();
     await _drain();
     expect(loader.requests, asked);
@@ -194,12 +202,12 @@ void main() {
     const way = OsmWay(id: 4, nodeIds: [1, 2, 3, 1], tags: {'building': 'yes'});
     final store = MapStore()
       ..add(OsmTile.at(16, _latitude, _longitude), [...corners, way]);
-    final edits = OsmEditHistory()
-      ..moveNode(
-        corners[1],
-        latitude: _latitude + 0.0001,
-        longitude: _longitude + 0.0002,
-      );
+    final edits = OsmEditHistory();
+    editing(edits).moveNode(
+      corners[1],
+      latitude: _latitude + 0.0001,
+      longitude: _longitude + 0.0002,
+    );
 
     // Its fill and the edge around it, as the tile drew it before it was
     // touched: not a road, which is what a way with nothing to go on is

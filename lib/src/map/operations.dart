@@ -84,8 +84,6 @@ class OfferedOperation {
 List<OfferedOperation> offeredOperations(
   OsmEditor view,
   List<OsmElement> selected, {
-  OsmPresets? presets,
-  Set<String> here = const {},
   bool tooLarge = false,
   OsmCopied? copied,
 }) {
@@ -99,7 +97,7 @@ List<OfferedOperation> offeredOperations(
         description: switch (copied) {
           null => '',
           final copied when copied.length == 1 =>
-            'Add a duplicate ${_labelOf(copied.elements.single, view, presets, here)} '
+            'Add a duplicate ${_labelOf(copied.elements.single, view)} '
                 'here.',
           final copied => 'Add ${copied.length} duplicate features here.',
         },
@@ -153,9 +151,9 @@ List<OfferedOperation> offeredOperations(
                   : "These can't be disconnected because not enough of them "
                         'are currently visible.'
             : switch (disconnect.disabled) {
-                'not_connected' =>
+                OsmDisabledReason.notConnected =>
                   "There aren't enough lines/areas here to disconnect.",
-                'relation' =>
+                OsmDisabledReason.relation =>
                   "This can't be disconnected because it connects members of "
                       'a relation.',
                 _ => null,
@@ -164,12 +162,7 @@ List<OfferedOperation> offeredOperations(
     );
   }
 
-  final extract = OsmExtractOperation(
-    view,
-    selected,
-    presets: presets,
-    here: here,
-  );
+  final extract = view.extract(selected);
   if (extract.available) {
     final shapes = {for (final e in selected) view.geometryOf(e)};
     final shape = shapes.length == 1 ? shapes.single : null;
@@ -217,10 +210,10 @@ List<OfferedOperation> offeredOperations(
         description: 'Merge these features.',
         disabled: switch (merge.disabled) {
           null => null,
-          'restriction' =>
+          OsmDisabledReason.restriction =>
             "These features can't be merged because it would damage a "
                 '"Restriction" relation.',
-          'connectivity' =>
+          OsmDisabledReason.connectivity =>
             "These features can't be merged because it would damage a "
                 '"Lane Connectivity" relation.',
           final reason =>
@@ -286,11 +279,12 @@ List<OfferedOperation> offeredOperations(
             _splitDescriptions['${split.kind}.$ways.$nodes'] ??
             _splitDescriptions['feature.multiple.$nodes']!,
         disabled: switch (split.disabled) {
-          'not_eligible' => "Lines can't be split at their beginning or end.",
-          'parent_incomplete' =>
+          OsmDisabledReason.notEligible =>
+            "Lines can't be split at their beginning or end.",
+          OsmDisabledReason.parentIncomplete =>
             'This line cannot be split because a parent relation isn’t '
                 'fully downloaded. Download the full relation.',
-          'simple_roundabout' =>
+          OsmDisabledReason.simpleRoundabout =>
             'This line cannot be split because this roundabout is part of a '
                 'larger relation. You must remove it from the relation first.',
           _ => null,
@@ -341,7 +335,7 @@ List<OfferedOperation> offeredOperations(
                   'are currently visible.',
             )
           : switch (delete.disabled) {
-              'part_of_relation' => one(
+              OsmDisabledReason.partOfRelation => one(
                 "This feature can't be deleted because it is part of a "
                     'larger relation. You must remove it from the relation '
                     'first.',
@@ -349,7 +343,7 @@ List<OfferedOperation> offeredOperations(
                     'larger relations. You must remove them from the '
                     'relations first.',
               ),
-              'has_wikidata_tag' => one(
+              OsmDisabledReason.hasWikidataTag => one(
                 "This feature can't be deleted because it has a Wikidata "
                     'tag.',
                 "These features can't be deleted because some have "
@@ -365,17 +359,17 @@ List<OfferedOperation> offeredOperations(
 
 /// What to call [element] in a sentence: its name, or failing that what
 /// kind of thing it is, in lower case, as iD words it.
-String _labelOf(
-  OsmElement element,
-  OsmEditor view,
-  OsmPresets? presets,
-  Set<String> here,
-) {
+String _labelOf(OsmElement element, OsmEditor view) {
   final name = element.tags['name'];
   if (name != null && name.isNotEmpty) return name;
+  final presets = view.presets;
   if (presets == null) return 'feature';
   return presets
-      .match(element.tags, view.geometryOf(element), here: here)
+      .match(
+        element.tags,
+        view.geometryOf(element),
+        here: view.regionsOf(element),
+      )
       .name
       .toLowerCase();
 }
@@ -404,26 +398,26 @@ const _disconnectDescriptions = {
 
 /// Why merging cannot be done, in iD's words.
 const _mergeReasons = {
-  'not_eligible': "These features can't be merged.",
-  'not_adjacent':
+  OsmDisabledReason.notEligible: "These features can't be merged.",
+  OsmDisabledReason.notAdjacent:
       "These features can't be merged because their endpoints aren't "
       'connected.',
-  'relation':
+  OsmDisabledReason.relation:
       "These features can't be merged because they have conflicting "
       'relation roles.',
-  'incomplete_relation':
+  OsmDisabledReason.incompleteRelation:
       "These features can't be merged because at least one hasn't been "
       'fully downloaded.',
-  'conflicting_tags':
+  OsmDisabledReason.conflictingTags:
       "These features can't be merged because some of their tags have "
       'conflicting values.',
-  'conflicting_relations':
+  OsmDisabledReason.conflictingRelations:
       "These features can't be merged because they belong to conflicting "
       'relations.',
-  'paths_intersect':
+  OsmDisabledReason.pathsIntersect:
       "These features can't be merged because the resulting path would "
       'intersect itself.',
-  'too_many_vertices':
+  OsmDisabledReason.tooManyVertices:
       "These features can't be merged because the resulting path would "
       'have too many points.',
 };
