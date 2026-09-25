@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 import '../map/camera.dart';

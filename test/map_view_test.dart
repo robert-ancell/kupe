@@ -11,6 +11,8 @@ import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/map/map_view.dart';
 import 'package:kupe/src/map/pick.dart';
 import 'package:kupe/src/render/map_painter.dart';
+import 'package:osm/country_coder.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 const _linz = OsmImagery(

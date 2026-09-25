@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kupe/src/data/map_store.dart';
 import 'package:kupe/src/map/operations.dart';
 import 'package:kupe/src/style/style.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 const _tile = OsmTile(16, 64583, 39992);

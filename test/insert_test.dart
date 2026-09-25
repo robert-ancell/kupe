@@ -1,6 +1,7 @@
 import 'package:kupe/src/data/map_store.dart';
 import 'package:kupe/src/edit/insert.dart';
 import 'package:kupe/src/edit/ways.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 import 'editing.dart';

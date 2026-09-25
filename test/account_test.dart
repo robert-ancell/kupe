@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kupe/src/account/account.dart';
 import 'package:kupe/src/account/upload_dialog.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 import 'editing.dart';

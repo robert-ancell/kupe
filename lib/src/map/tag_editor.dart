@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 import 'preset_picker.dart';

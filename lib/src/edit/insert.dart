@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 import '../data/map_store.dart';

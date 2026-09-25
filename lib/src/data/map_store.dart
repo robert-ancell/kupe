@@ -1,3 +1,4 @@
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 /// Everything read from OpenStreetMap so far, stitched into one dataset.

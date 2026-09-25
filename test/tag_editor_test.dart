@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kupe/src/map/tag_editor.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 const _road = OsmWay(

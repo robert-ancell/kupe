@@ -1,3 +1,4 @@
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 /// The elements [edits] has changed, along with everything that has to be

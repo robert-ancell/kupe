@@ -8,6 +8,7 @@ import 'package:kupe/src/data/map_store.dart';
 import 'package:kupe/src/edit/edited_geometry.dart';
 import 'package:kupe/src/map/camera.dart';
 import 'package:kupe/src/style/style.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 import 'editing.dart';

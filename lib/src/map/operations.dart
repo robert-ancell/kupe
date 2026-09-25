@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 
 /// The things that can be done to what is selected, in the order iD offers

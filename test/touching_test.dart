@@ -1,4 +1,5 @@
 import 'package:kupe/src/edit/touching.dart';
+import 'package:osm/editor.dart';
 import 'package:osm/osm.dart';
 import 'package:test/test.dart';
 
