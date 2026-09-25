@@ -97,7 +97,13 @@ Future<void> main(List<String> arguments) async {
   // off the disk after that; until it is in, things go by their ids.
   final presets = ValueNotifier<OsmPresets?>(null);
   if (cache != null) {
-    unawaited(cache.presets().then((read) => presets.value = read));
+    // None at all stays unknown: until there are presets, what is an area
+    // goes by the map's own style rather than by nothing being one.
+    unawaited(
+      cache.presets().then((read) {
+        if (read.byId.isNotEmpty) presets.value = read;
+      }),
+    );
   }
 
   // Which country a place is in, which is what says which of the kinds of
