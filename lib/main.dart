@@ -86,9 +86,9 @@ Future<void> main(List<String> arguments) async {
   final index = ValueNotifier(const OsmImageryIndex([fallbackImagery]));
   if (cache != null) {
     unawaited(
-      cache.imageryIndex
-          .read(fallback: const [fallbackImagery])
-          .then((read) => index.value = read),
+      cache.imageryIndex.then((read) {
+        if (read.layers.isNotEmpty) index.value = read;
+      }),
     );
   }
 
@@ -97,7 +97,7 @@ Future<void> main(List<String> arguments) async {
   // off the disk after that; until it is in, things go by their ids.
   final presets = ValueNotifier<OsmPresets?>(null);
   if (cache != null) {
-    unawaited(cache.presets.read().then((read) => presets.value = read));
+    unawaited(cache.presets().then((read) => presets.value = read));
   }
 
   // Which country a place is in, which is what says which of the kinds of
@@ -105,7 +105,7 @@ Future<void> main(List<String> arguments) async {
   // the ones meant for everywhere do.
   final countries = ValueNotifier<OsmCountryCoder?>(null);
   if (cache != null) {
-    unawaited(cache.countryCoder.read().then((read) => countries.value = read));
+    unawaited(cache.countryCoder.then((read) => countries.value = read));
   }
 
   final left = place == null ? null : await LastPlace.read(place);
@@ -120,10 +120,10 @@ Future<void> main(List<String> arguments) async {
             longitude: _somewhere.longitude,
             zoom: _somewhere.zoom,
           ),
-      cache: cache?.tiles,
+      cache: cache?.tileCache,
       place: place,
       account: accountFile,
-      imageryCache: cache?.imagery,
+      imageryCache: cache?.imageryCache,
       imageryIndex: index,
       imageryFetch: imageryFetch,
       presets: presets,
