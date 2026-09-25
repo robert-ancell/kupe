@@ -115,10 +115,10 @@ Future<void> main(List<String> arguments) async {
   // Which country a place is in, which is what says which of the kinds of
   // thing that only exist in some countries apply here. Until it is in, only
   // the ones meant for everywhere do.
-  final countries = ValueNotifier<OsmCountries?>(null);
+  final countries = ValueNotifier<OsmCountryCoder?>(null);
   if (countriesDirectory != null) {
     unawaited(
-      OsmCountriesFile.read(
+      OsmCountryCoderFile.read(
         directory: countriesDirectory,
         fetch: httpFetch(contact: contact),
       ).then((read) => countries.value = read),
@@ -176,7 +176,7 @@ class KupeApp extends StatelessWidget {
   final ValueListenable<OsmPresets?>? presets;
 
   /// Which country a place is in, once the borders are known.
-  final ValueListenable<OsmCountries?>? countries;
+  final ValueListenable<OsmCountryCoder?>? countries;
 
   /// Creates the app.
   const KupeApp({

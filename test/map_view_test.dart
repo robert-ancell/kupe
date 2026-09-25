@@ -1694,7 +1694,7 @@ void main() {
     );
 
     /// A country taking in everywhere the map looks.
-    final countries = OsmCountries.parse(
+    final countries = OsmCountryCoder.parse(
       jsonEncode({
         'type': 'FeatureCollection',
         'features': [
@@ -1718,7 +1718,7 @@ void main() {
       }),
     );
 
-    Future<void> openOver(WidgetTester tester, OsmCountries? known) async {
+    Future<void> openOver(WidgetTester tester, OsmCountryCoder? known) async {
       await tester.binding.setSurfaceSize(const Size(1000, 800));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(

@@ -121,7 +121,7 @@ class MapView extends StatefulWidget {
   /// Which country a place is in, once the borders are known: what says
   /// which of the kinds that only exist in some countries apply to what is
   /// selected.
-  final ValueListenable<OsmCountries?>? countries;
+  final ValueListenable<OsmCountryCoder?>? countries;
 
   /// How to sign in, given the account as it stands and a future that
   /// completes if it is given up on. Replaced in tests, which have no
