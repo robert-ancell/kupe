@@ -515,7 +515,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     }
 
     final wanted = index
-        .at(
+        .layersAt(
           camera.latitude,
           camera.longitude,
           category: OsmImageryCategory.photo,
