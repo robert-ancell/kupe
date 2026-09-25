@@ -143,7 +143,7 @@ List<OfferedOperation> offeredOperations(
         icon: Icons.link_off,
         key: 'D',
         description:
-            _disconnectDescriptions[disconnect.kind] ??
+            _disconnectDescriptions[_disconnectKey(disconnect, view)] ??
             'Disconnect these features from each other.',
         disabled: tooLarge
             ? points == 1
@@ -253,11 +253,14 @@ List<OfferedOperation> offeredOperations(
         title: 'Reverse',
         icon: Icons.swap_horiz,
         key: 'V',
-        description: switch (reverse.kind) {
-          'point' => 'Flip the direction of this point.',
-          'points' => 'Flip the direction of these points.',
-          'line' => 'Make this line go in the opposite direction.',
-          'lines' => 'Make these lines go in the opposite direction.',
+        description: switch ((
+          reverse.reversible.whereType<OsmWay>().length,
+          reverse.reversible.whereType<OsmNode>().length,
+        )) {
+          (0, 1) => 'Flip the direction of this point.',
+          (0, _) => 'Flip the direction of these points.',
+          (1, 0) => 'Make this line go in the opposite direction.',
+          (_, 0) => 'Make these lines go in the opposite direction.',
           _ => 'Flip the directions of these features.',
         },
       ),
@@ -277,7 +280,7 @@ List<OfferedOperation> offeredOperations(
         icon: Icons.content_cut,
         key: 'X',
         description:
-            _splitDescriptions['${split.kind}.$ways.$nodes'] ??
+            _splitDescriptions['${_splitShape(split, view)}.$ways.$nodes'] ??
             _splitDescriptions['feature.multiple.$nodes']!,
         disabled: switch (split.disabled) {
           OsmDisabledReason.notEligible =>
@@ -336,7 +339,7 @@ List<OfferedOperation> offeredOperations(
                   'are currently visible.',
             )
           : switch (delete.disabled) {
-              OsmDisabledReason.partOfRelation => one(
+              OsmStandardTagRules.partOfRelation => one(
                 "This feature can't be deleted because it is part of a "
                     'larger relation. You must remove it from the relation '
                     'first.',
@@ -344,7 +347,7 @@ List<OfferedOperation> offeredOperations(
                     'larger relations. You must remove them from the '
                     'relations first.',
               ),
-              OsmDisabledReason.hasWikidataTag => one(
+              OsmStandardTagRules.hasWikidataTag => one(
                 "This feature can't be deleted because it has a Wikidata "
                     'tag.',
                 "These features can't be deleted because some have "
@@ -375,6 +378,35 @@ String _labelOf(OsmElement element, OsmEditor view) {
       )
       .name
       .toLowerCase();
+}
+
+/// What is split, as iD's descriptions name it: `line`, `area`, or
+/// `feature` for both.
+String _splitShape(OsmSplitOperation split, OsmEditor view) {
+  final shapes = {for (final way in split.ways) view.geometryOf(way)};
+  if (shapes.length != 1) return 'feature';
+  return shapes.single == OsmGeometry.area ? 'area' : 'line';
+}
+
+/// What is disconnected, as iD's descriptions name it:
+/// `single_point.no_ways`, `no_points.multiple_ways.conjoined` and so on.
+String _disconnectKey(OsmDisconnectOperation disconnect, OsmEditor view) {
+  String shape(OsmWay way) =>
+      view.geometryOf(way) == OsmGeometry.area ? 'area' : 'line';
+  final ways = disconnect.ways;
+  if (disconnect.points > 0) {
+    final points = disconnect.points == 1 ? 'single_point' : 'multiple_points';
+    if (ways.length == 1) return '$points.single_way.${shape(ways.single)}';
+    return '$points.${ways.isEmpty ? 'no_ways' : 'multiple_ways'}';
+  }
+  if (ways.length == 1) {
+    return disconnect.conjoined
+        ? 'no_points.single_way.conjoined'
+        : 'no_points.single_way.${shape(ways.single)}';
+  }
+  return disconnect.conjoined
+      ? 'no_points.multiple_ways.conjoined'
+      : 'no_points.multiple_ways.separate';
 }
 
 /// What disconnecting does, in iD's words, by what is disconnected.

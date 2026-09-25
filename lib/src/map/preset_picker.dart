@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:osm/editor.dart';
+import 'package:osm/osm.dart';
 
 /// A list of the kinds of thing something can be, to choose one from.
 ///

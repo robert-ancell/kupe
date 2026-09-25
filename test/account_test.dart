@@ -96,7 +96,7 @@ void main() {
         latitude: 3,
         longitude: 4,
       );
-      return OsmUpload.of(edits);
+      return edits.upload;
     }
 
     testWidgets('lists every element that would change', (tester) async {

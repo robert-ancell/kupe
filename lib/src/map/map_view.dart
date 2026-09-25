@@ -351,10 +351,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     if (_account.token == null || !mounted) return;
     final changeset = await showUploadDialog(
       context,
-      upload: OsmUpload.of(_edits),
+      upload: _edits.upload,
       comment: _comment,
-      send: (comment) =>
-          widget.client.upload(OsmUpload.of(_edits), comment: comment),
+      send: (comment) => widget.client.upload(_edits.upload, comment: comment),
     );
     if (changeset == null || !mounted) return;
     setState(() {
@@ -1584,7 +1583,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
                           onSignIn: _signIn,
                           onCancel: _cancelSignIn,
                           onSignOut: _signOut,
-                          changes: OsmUpload.of(_edits).length,
+                          changes: _edits.upload.length,
                           onUpload: _upload,
                         ),
                         if (!_tooFarToEdit) ...[
