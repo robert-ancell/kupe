@@ -57,7 +57,7 @@ Future<Uint8List?> _road(
 
 Future<MapLoader> _loaded(OsmEdits edits, {OsmTileCache? cache}) async {
   final loader = MapLoader(
-    api: OsmApi(fetch: _road),
+    api: OsmApiClient(fetch: _road),
     edits: edits,
     cache: cache,
     onChanged: () {},

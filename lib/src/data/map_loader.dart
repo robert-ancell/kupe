@@ -69,7 +69,7 @@ const maximumSplits = 2;
 /// than asking for it anyway.
 class MapLoader {
   /// The API to read from.
-  final OsmApi api;
+  final OsmApiClient api;
 
   /// Where boxes already read are kept between runs, if anywhere.
   final OsmTileCache? cache;

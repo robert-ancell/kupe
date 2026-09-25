@@ -61,7 +61,7 @@ class _Api {
 }
 
 MapLoader _loaderOn(_Api server, {OsmTileCache? cache}) => MapLoader(
-  api: OsmApi(fetch: server.fetch),
+  api: OsmApiClient(fetch: server.fetch),
   cache: cache,
   onChanged: () {},
 );
@@ -176,7 +176,7 @@ void main() {
   test('stops asking when the server says it has had enough', () async {
     final server = _TooManyRequests();
     final loader = MapLoader(
-      api: OsmApi(fetch: server.fetch),
+      api: OsmApiClient(fetch: server.fetch),
       onChanged: () {},
     );
     loader.look(
@@ -279,7 +279,7 @@ void main() {
     test('remembers where the map was left', () async {
       final place = File('${work.path}/place.json');
       MapLoader(
-        api: OsmApi(fetch: _Api().fetch),
+        api: OsmApiClient(fetch: _Api().fetch),
         place: place,
         onChanged: () {},
       ).look(_at(17), _size);
@@ -323,7 +323,7 @@ void main() {
     test('picks itself up again rather than stopping for good', () async {
       final server = _Unwell();
       final loader = MapLoader(
-        api: OsmApi(fetch: server.fetch),
+        api: OsmApiClient(fetch: server.fetch),
         onChanged: () {},
       );
       loader.look(_at(17), _size);
@@ -343,7 +343,7 @@ void main() {
     test('asks again for the box it was turned away on', () async {
       final server = _Unwell();
       final loader = MapLoader(
-        api: OsmApi(fetch: server.fetch),
+        api: OsmApiClient(fetch: server.fetch),
         onChanged: () {},
       );
       loader.look(_at(17), _size);
@@ -366,7 +366,7 @@ void main() {
     test('survives the network being away', () async {
       final server = _Offline();
       final loader = MapLoader(
-        api: OsmApi(fetch: server.fetch),
+        api: OsmApiClient(fetch: server.fetch),
         onChanged: () {},
       );
       loader.look(_at(17), _size);

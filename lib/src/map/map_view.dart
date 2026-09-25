@@ -81,7 +81,7 @@ const zoomToEditDuration = Duration(milliseconds: 250);
 /// map is still or moving, and new tiles appear as their answers arrive.
 class MapView extends StatefulWidget {
   /// Where to read the map from.
-  final OsmApi api;
+  final OsmApiClient api;
 
   /// Where to start looking from.
   final Camera initialCamera;
