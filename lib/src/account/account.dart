@@ -138,10 +138,10 @@ class Account {
   /// Completing [cancel] gives up, with [OsmSignInCancelledException].
   Future<Account> signIn({
     Future<void>? cancel,
-    Future<OsmToken> Function(OsmSignIn)? through,
+    Future<OsmToken> Function(OsmAuthenticator)? through,
     Future<String> Function(String token)? whoAmI,
   }) async {
-    final signIn = OsmSignIn(
+    final signIn = OsmAuthenticator(
       clientId: kupeClientId,
       scopes: kupeScopes,
       redirectPort: kupeRedirectPort,
