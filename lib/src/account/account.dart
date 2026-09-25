@@ -6,6 +6,8 @@ import 'dart:io';
 
 import 'package:osm/osm.dart';
 
+import '../contact.dart';
+
 /// The OAuth application Kupe asks OpenStreetMap for a token as.
 ///
 /// Public on purpose: a client ID names an application and authorises
@@ -159,11 +161,11 @@ class Account {
   }
 
   static Future<String> _whoAmI(String token) async {
-    final uploader = OsmUploader(token: token, generator: kupeGenerator);
+    final client = OsmApiClient(contact: contact, token: token);
     try {
-      return await uploader.whoAmI();
+      return await client.displayName();
     } finally {
-      uploader.close();
+      client.close();
     }
   }
 }

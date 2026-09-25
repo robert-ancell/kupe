@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:osm/osm.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'src/account/account.dart';
 import 'src/contact.dart';
 import 'src/data/map_loader.dart';
 import 'src/data/last_place.dart';
@@ -112,6 +113,12 @@ Future<void> main(List<String> arguments) async {
 
   runApp(
     KupeApp(
+      // One for the life of the editor, since it holds who is signed in.
+      client: OsmApiClient(
+        contact: contact,
+        concurrency: maximumInFlight,
+        createdBy: kupeGenerator,
+      ),
       camera:
           asked ??
           left ??
@@ -133,6 +140,9 @@ Future<void> main(List<String> arguments) async {
 
 /// The editor.
 class KupeApp extends StatelessWidget {
+  /// The OpenStreetMap API, read from and uploaded to.
+  final OsmApiClient client;
+
   /// Where to open the map.
   final Camera camera;
 
@@ -163,6 +173,7 @@ class KupeApp extends StatelessWidget {
   /// Creates the app.
   const KupeApp({
     super.key,
+    required this.client,
     required this.camera,
     this.cache,
     this.place,
@@ -181,7 +192,7 @@ class KupeApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: MapView(
-          client: OsmApiClient(contact: contact, concurrency: maximumInFlight),
+          client: client,
           initialCamera: camera,
           cache: cache,
           place: place,

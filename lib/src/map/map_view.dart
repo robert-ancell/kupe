@@ -202,6 +202,12 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Who an edit would be made as.
   Account _account = const Account();
 
+  /// Takes [account] as whoever is signed in, and gives the API their token.
+  void _setAccount(Account account) {
+    _account = account;
+    widget.client.token = account.token;
+  }
+
   /// What the changeset would be called, kept here so that a comment typed
   /// and then thought better of is still there next time.
   final _comment = TextEditingController();
@@ -270,7 +276,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     widget.countries?.addListener(_presetsChanged);
     unawaited(
       Account.read(widget.account).then((account) {
-        if (mounted) setState(() => _account = account);
+        if (mounted) setState(() => _setAccount(account));
       }),
     );
   }
@@ -295,7 +301,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
               _account.signIn(cancel: cancel.future));
       await account.write(widget.account);
       if (!mounted) return false;
-      setState(() => _account = account);
+      setState(() => _setAccount(account));
       return account.canUpload;
     } on OsmSignInCancelledException {
       return false;
@@ -316,7 +322,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   /// Forgets the token, here and on disk.
   Future<void> _signOut() async {
     final account = _account.copyWith(signedOut: true);
-    setState(() => _account = account);
+    setState(() => _setAccount(account));
     await account.write(widget.account);
   }
 
@@ -333,16 +339,14 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     // once that has worked the upload carries on from where it was asked
     // for rather than making somebody press the button a second time.
     if (!_account.canUpload && !await _signIn()) return;
-    final token = _account.token;
-    if (token == null || !mounted) return;
-    final uploader = OsmUploader(token: token, generator: kupeGenerator);
+    if (_account.token == null || !mounted) return;
     final changeset = await showUploadDialog(
       context,
       upload: OsmUpload.of(_edits),
       comment: _comment,
-      send: (comment) => uploader.send(OsmUpload.of(_edits), comment: comment),
+      send: (comment) =>
+          widget.client.upload(OsmUpload.of(_edits), comment: comment),
     );
-    uploader.close();
     if (changeset == null || !mounted) return;
     setState(() {
       _editor.undoAll();
