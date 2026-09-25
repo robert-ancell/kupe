@@ -10,7 +10,7 @@ import 'preset_picker.dart';
 /// several elements selected there is one text for all of them: a tag they
 /// share is shown as it is, and one they do not is shown as `key=*`. What is
 /// changed in the text is changed on every one of them — see
-/// [osmApplyTagText] — and what is left alone is left alone on each.
+/// [OsmTagText.apply] — and what is left alone is left alone on each.
 ///
 /// Changes are applied when the text is left, as iD does: a tag half typed
 /// is not a tag, and applying on every key would put `h`, `hi`, `hig` and
@@ -69,7 +69,7 @@ class _TagEditorState extends State<TagEditor> {
   late String _shown;
 
   static String _shownFor(List<OsmElement> elements) =>
-      osmTagText([for (final element in elements) element.tags]);
+      OsmTagText([for (final element in elements) element.tags]).text;
 
   @override
   void initState() {
@@ -121,7 +121,7 @@ class _TagEditorState extends State<TagEditor> {
     final edited = _text.text;
     if (edited == _shown) return const [];
     final before = [for (final element in elements) element.tags];
-    final after = osmApplyTagText(before, before: _shown, after: edited);
+    final after = OsmTagText(before, text: _shown).apply(edited);
     _shown = edited;
     return [
       for (var i = 0; i < elements.length; i++)
