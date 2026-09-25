@@ -363,13 +363,15 @@ List<OfferedOperation> offeredOperations(
 String _labelOf(OsmElement element, OsmEditor view) {
   final name = element.tags['name'];
   if (name != null && name.isNotEmpty) return name;
-  final presets = view.presets;
+  final rules = view.rules;
+  if (rules is! OsmStandardTagRules) return 'feature';
+  final presets = rules.presets;
   if (presets == null) return 'feature';
   return presets
       .match(
         element.tags,
         view.geometryOf(element),
-        here: view.regionsOf(element),
+        here: rules.regionsOf(element, view),
       )
       .name
       .toLowerCase();

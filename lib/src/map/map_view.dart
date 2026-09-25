@@ -159,13 +159,19 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     },
   );
 
+  /// What tags mean, by the tagging schema and where things are once they
+  /// are known, and by the map's own style until then.
+  late final OsmStandardTagRules _rules = OsmStandardTagRules(
+    presets: widget.presets?.value,
+    countryCoder: widget.countries?.value,
+    isAreaWithoutPresets: enclosesArea,
+  );
+
   /// Everything done to the map, laid over what [_loader] has read.
   late final OsmEditor _editor = OsmEditor(
     _loader.store,
     history: _edits,
-    presets: widget.presets?.value,
-    countryCoder: widget.countries?.value,
-    isArea: enclosesArea,
+    rules: _rules,
   );
   late final MapLoader _loader = MapLoader(
     client: widget.client,
@@ -668,7 +674,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   }
 
   void _presetsChanged() {
-    _editor
+    _rules
       ..presets = widget.presets?.value
       ..countryCoder = widget.countries?.value;
     if (mounted) setState(() {});
@@ -995,8 +1001,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     _loader.editsChanged();
   }
 
-  /// Every region [element] is in; see [OsmEditor.regionsOf].
-  Set<String> _regionsOf(OsmElement element) => _editor.regionsOf(element);
+  /// Every region [element] is in; see [OsmStandardTagRules.regionsOf].
+  Set<String> _regionsOf(OsmElement element) =>
+      _rules.regionsOf(element, _editor);
 
   /// Gives each element its new tags, all as one change.
   ///

@@ -40,7 +40,10 @@ OsmEditor _roads({List<OsmRelation> relations = const []}) {
       ),
       ...relations,
     ]);
-  return OsmEditor(store, isArea: enclosesArea);
+  return OsmEditor(
+    store,
+    rules: OsmStandardTagRules(isAreaWithoutPresets: enclosesArea),
+  );
 }
 
 List<OperationKind> _kinds(List<OfferedOperation> offered) => [
@@ -65,7 +68,10 @@ void main() {
       ..add(_tile, [
         _node(1, 0, {'amenity': 'bench', 'name': 'Rest'}),
       ]);
-    final view = OsmEditor(store, isArea: enclosesArea);
+    final view = OsmEditor(
+      store,
+      rules: OsmStandardTagRules(isAreaWithoutPresets: enclosesArea),
+    );
     final copied = view.copy([view.node(1)!]);
     expect(
       offeredOperations(view, const [], copied: copied).single.description,
