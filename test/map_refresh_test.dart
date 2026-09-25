@@ -115,17 +115,17 @@ class _Api {
 
 /// Ages everything the cache holds so that it is worth checking, the way it
 /// would be on opening the editor the next day.
-Future<OsmTileCache> _aged(Directory work) async {
+Future<OsmDataCache> _aged(Directory work) async {
   final index = File('${work.path}/index.json');
   final parsed = jsonDecode(await index.readAsString()) as Map<String, dynamic>;
   final long = DateTime.now()
-      .subtract(osmTileCacheFreshness * 2)
+      .subtract(OsmDataCache.freshness * 2)
       .millisecondsSinceEpoch;
   for (final tile in parsed['tiles'] as List) {
     (tile as Map<String, dynamic>)['at'] = long;
   }
   await index.writeAsString(jsonEncode(parsed));
-  return OsmTileCache.open(directory: work);
+  return OsmDataCache.open(directory: work);
 }
 
 void main() {
@@ -140,8 +140,8 @@ void main() {
   });
 
   /// Reads a view into a cache and hands back the cache, aged.
-  Future<OsmTileCache> fill(_Api server) async {
-    final cache = await OsmTileCache.open(directory: work);
+  Future<OsmDataCache> fill(_Api server) async {
+    final cache = await OsmDataCache.open(directory: work);
     MapLoader(
       client: OsmApiClient(fetch: server.fetch),
       cache: cache,
@@ -153,7 +153,7 @@ void main() {
 
   test('does not check anything while what it holds is new', () async {
     final server = _Api();
-    final cache = await OsmTileCache.open(directory: work);
+    final cache = await OsmDataCache.open(directory: work);
     final loader = MapLoader(
       client: OsmApiClient(fetch: server.fetch),
       cache: cache,

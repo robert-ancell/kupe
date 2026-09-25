@@ -213,7 +213,7 @@ void main() {
 
 /// Where a place on the ground falls on the view.
 Offset _onScreen(double latitude, double longitude) =>
-    _camera.toScreen(Mercator.x(longitude), Mercator.y(latitude), _size);
+    _camera.toScreen(OsmMercator.x(longitude), OsmMercator.y(latitude), _size);
 
 /// A store holding a road of [count] nodes running east, and optionally a
 /// second road crossing it at the given node along the way.
@@ -395,8 +395,8 @@ void _refreshing() {
 
       expect(now.id, picked.id);
       expect(now.worldY, isNot(picked.worldY));
-      expect(now.worldY, closeTo(Mercator.y(_latitude + 0.001), 1e-12));
-      expect(now.worldX, closeTo(Mercator.x(_longitude + 0.001), 1e-12));
+      expect(now.worldY, closeTo(OsmMercator.y(_latitude + 0.001), 1e-12));
+      expect(now.worldX, closeTo(OsmMercator.x(_longitude + 0.001), 1e-12));
     });
 
     test('gives a line back with its moved node moved', () {
@@ -418,7 +418,7 @@ void _refreshing() {
       );
       final now = refreshed(line, store, edits)! as PickedWay;
 
-      expect(now.points[5], closeTo(Mercator.y(_latitude + 0.001), 1e-12));
+      expect(now.points[5], closeTo(OsmMercator.y(_latitude + 0.001), 1e-12));
       expect(now.points[1], line.points[1], reason: 'the others stay put');
     });
 
@@ -480,7 +480,11 @@ void _afterDeleting() {
       final picked = wayAt(_middle, camera, _size, store);
       expect(picked?.way.id, 3, reason: 'from $longitude');
       final node = nodeAt(
-        camera.toScreen(Mercator.x(-179.9995), Mercator.y(_latitude), _size),
+        camera.toScreen(
+          OsmMercator.x(-179.9995),
+          OsmMercator.y(_latitude),
+          _size,
+        ),
         camera,
         _size,
         store,

@@ -20,8 +20,8 @@ MapStore _storeWith(List<OsmWay> ways, {List<OsmNode> extra = const []}) {
 }
 
 /// Halfway along the stretch between the two nodes.
-double get _middleX => Mercator.x(174.761);
-double get _middleY => Mercator.y(_latitude);
+double get _middleX => OsmMercator.x(174.761);
+double get _middleY => OsmMercator.y(_latitude);
 
 void main() {
   _deleting();
@@ -65,7 +65,7 @@ void main() {
       road,
       store,
       edits,
-      worldX: Mercator.x(174.763),
+      worldX: OsmMercator.x(174.763),
       worldY: _middleY,
     );
     expect(edits.changedWay(10)!.nodeIds, [1, 2, made!.id, 3]);

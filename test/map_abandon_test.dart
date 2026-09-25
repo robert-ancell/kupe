@@ -143,7 +143,7 @@ void main() {
   });
 
   test('keeps an answer that arrives after it was given up on', () async {
-    final cache = await OsmTileCache.open(directory: work);
+    final cache = await OsmDataCache.open(directory: work);
     final server = _Held()..replyBegun = true;
     final loader = MapLoader(
       client: OsmApiClient(fetch: server.fetch),
@@ -166,7 +166,7 @@ void main() {
   });
 
   test('reads a kept box from disk rather than asking again', () async {
-    final cache = await OsmTileCache.open(directory: work);
+    final cache = await OsmDataCache.open(directory: work);
     final server = _Held()..replyBegun = true;
     final loader = MapLoader(
       client: OsmApiClient(fetch: server.fetch),

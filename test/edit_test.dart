@@ -55,7 +55,7 @@ Future<Uint8List?> _road(
   );
 }
 
-Future<MapLoader> _loaded(OsmEditHistory edits, {OsmTileCache? cache}) async {
+Future<MapLoader> _loaded(OsmEditHistory edits, {OsmDataCache? cache}) async {
   final loader = MapLoader(
     client: OsmApiClient(fetch: _road),
     edits: edits,
@@ -103,7 +103,7 @@ void main() {
     // From where the node is now.
     expect(
       drawn.nodes.single.$2,
-      closeTo(Mercator.y(_latitude + 0.0002), 1e-12),
+      closeTo(OsmMercator.y(_latitude + 0.0002), 1e-12),
     );
   });
 
@@ -125,7 +125,7 @@ void main() {
     addTearDown(() async => work.delete(recursive: true));
 
     final edits = OsmEditHistory();
-    final cache = await OsmTileCache.open(directory: work);
+    final cache = await OsmDataCache.open(directory: work);
     final loader = await _loaded(edits, cache: cache);
     final node = _someNode(loader);
     final before = cache.tiles.map((t) => '${t.id}:${t.bytes}').toList();

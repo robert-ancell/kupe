@@ -243,7 +243,7 @@ class ImageryLayer<T extends Object> {
 
   double _fromCentre(OsmTile tile, Offset centre) {
     final dx =
-        Mercator.nearest(tile.worldX + tile.size / 2, centre.dx) - centre.dx;
+        OsmMercator.nearest(tile.worldX + tile.size / 2, centre.dx) - centre.dx;
     final dy = tile.worldY + tile.size / 2 - centre.dy;
     return dx * dx + dy * dy;
   }

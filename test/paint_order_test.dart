@@ -35,8 +35,8 @@ final _camera = Camera.at(latitude: -36.85, longitude: 174.76, zoom: 17);
 /// on screen.
 GpuTileMesh _mesh({double latitude = -36.85, double longitude = 174.76}) {
   final tile = OsmTile.at(16, latitude, longitude);
-  final x = (Mercator.x(longitude) - tile.worldX) * tileExtent / tile.size;
-  final y = (Mercator.y(latitude) - tile.worldY) * tileExtent / tile.size;
+  final x = (OsmMercator.x(longitude) - tile.worldX) * tileExtent / tile.size;
+  final y = (OsmMercator.y(latitude) - tile.worldY) * tileExtent / tile.size;
   return GpuTileMesh.of(
     TileMesh(
       id: tile,
@@ -175,8 +175,8 @@ void main() {
     // edge, so a road starting two tiles west still reaches the middle.
     final here = OsmTile.at(16, -36.85, 174.76);
     final west = OsmTile(16, here.x - 2, here.y);
-    final x = (Mercator.x(174.76) - west.worldX) * tileExtent / west.size;
-    final y = (Mercator.y(-36.85) - west.worldY) * tileExtent / west.size;
+    final x = (OsmMercator.x(174.76) - west.worldX) * tileExtent / west.size;
+    final y = (OsmMercator.y(-36.85) - west.worldY) * tileExtent / west.size;
     final mesh = GpuTileMesh.of(
       TileMesh(
         id: west,

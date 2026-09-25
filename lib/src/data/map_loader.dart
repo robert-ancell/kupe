@@ -72,7 +72,7 @@ class MapLoader {
   final OsmApiClient client;
 
   /// Where boxes already read are kept between runs, if anywhere.
-  final OsmTileCache? cache;
+  final OsmDataCache? cache;
 
   /// Where to remember the place the map was left, if anywhere.
   final File? place;
@@ -356,7 +356,8 @@ class MapLoader {
     final view = camera.worldBounds(_size);
     // The copy of the tile round the world nearest the view.
     final left =
-        Mercator.nearest(tile.worldX + tile.size / 2, camera.x) - tile.size / 2;
+        OsmMercator.nearest(tile.worldX + tile.size / 2, camera.x) -
+        tile.size / 2;
     return left < view.right &&
         left + tile.size > view.left &&
         tile.worldY < view.bottom &&

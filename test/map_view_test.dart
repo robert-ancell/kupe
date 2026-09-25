@@ -1881,7 +1881,7 @@ void main() {
       await open(tester, (_, cancel) async {
         await cancel;
         cancelled = true;
-        throw const OsmSignInCancelledException();
+        throw const OsmAuthenticationCancelledException();
       });
       await tester.tap(find.byKey(const Key('sign-in')));
       await tester.pump();
@@ -1897,8 +1897,9 @@ void main() {
     testWidgets('says why when it does not work', (tester) async {
       await open(
         tester,
-        (_, _) async =>
-            throw const OsmSignInException('The browser never came back.'),
+        (_, _) async => throw const OsmAuthenticationException(
+          'The browser never came back.',
+        ),
       );
       await tester.tap(find.byKey(const Key('sign-in')));
       await tester.pump();

@@ -90,7 +90,7 @@ EditedGeometry editedGeometry(
     nodes: [
       for (final node in edits.changedNodes.values)
         if (!edits.isGone(OsmElementType.node, node.id))
-          (Mercator.x(node.longitude), Mercator.y(node.latitude)),
+          (OsmMercator.x(node.longitude), OsmMercator.y(node.latitude)),
     ],
   );
 }
@@ -103,8 +103,8 @@ List<double> _pointsOf(List<int> ids, MapStore store, OsmEditHistory edits) {
     if (edits.isGone(OsmElementType.node, id)) continue;
     final node = edits.changedNode(id) ?? store.nodes[id];
     if (node == null) continue;
-    points.add(Mercator.x(node.longitude));
-    points.add(Mercator.y(node.latitude));
+    points.add(OsmMercator.x(node.longitude));
+    points.add(OsmMercator.y(node.latitude));
   }
   return points;
 }

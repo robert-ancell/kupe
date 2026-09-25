@@ -250,9 +250,9 @@ List<double> _project(List<OsmNode> nodes, OsmTile tile) {
   final out = List<double>.filled(nodes.length * 2, 0);
   for (var i = 0; i < nodes.length; i++) {
     final node = nodes[i];
-    final x = Mercator.nearest(Mercator.x(node.longitude), middle);
+    final x = OsmMercator.nearest(OsmMercator.x(node.longitude), middle);
     out[i * 2] = (x - tile.worldX) * scale;
-    out[i * 2 + 1] = (Mercator.y(node.latitude) - tile.worldY) * scale;
+    out[i * 2 + 1] = (OsmMercator.y(node.latitude) - tile.worldY) * scale;
   }
   return out;
 }

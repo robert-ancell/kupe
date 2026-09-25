@@ -70,7 +70,7 @@ class Account {
   ///
   /// False while nobody is signed in, and false for a token granted before
   /// Kupe asked to be allowed to upload.
-  bool get canUpload => isSignedIn && scopes.contains(osmWriteApiScope);
+  bool get canUpload => isSignedIn && scopes.contains(OsmToken.writeApiScope);
 
   /// The same account with parts of it replaced, or with the token dropped.
   Account copyWith({
@@ -137,7 +137,7 @@ class Account {
   /// can say who an edit would be made as rather than only that it could be
   /// made.
   ///
-  /// Completing [cancel] gives up, with [OsmSignInCancelledException].
+  /// Completing [cancel] gives up, with [OsmAuthenticationCancelledException].
   Future<Account> signIn({
     Future<void>? cancel,
     Future<OsmToken> Function(OsmAuthenticator)? through,
@@ -155,9 +155,9 @@ class Account {
     // without it is still worth keeping: the editor can say what it is short
     // of, which is more use than refusing to hold it at all.
     final user = token.covers('read_prefs')
-        ? await (whoAmI?.call(token.token) ?? _whoAmI(token.token))
+        ? await (whoAmI?.call(token.accessToken) ?? _whoAmI(token.accessToken))
         : null;
-    return copyWith(token: token.token, user: user, scopes: token.scopes);
+    return copyWith(token: token.accessToken, user: user, scopes: token.scopes);
   }
 
   static Future<String> _whoAmI(String token) async {

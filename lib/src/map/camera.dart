@@ -31,7 +31,7 @@ class Camera {
   /// Creates a camera over world ([x], [y]), which is brought back onto the
   /// world.
   Camera({required double x, required double y, required this.zoom})
-    : x = Mercator.wrap(x),
+    : x = OsmMercator.wrap(x),
       y = y.clamp(0.0, 1.0);
 
   /// A camera looking at a place on the earth.
@@ -39,21 +39,25 @@ class Camera {
     required double latitude,
     required double longitude,
     required double zoom,
-  }) => Camera(x: Mercator.x(longitude), y: Mercator.y(latitude), zoom: zoom);
+  }) => Camera(
+    x: OsmMercator.x(longitude),
+    y: OsmMercator.y(latitude),
+    zoom: zoom,
+  );
 
   /// How many pixels one world unit covers.
   double get scale => tilePixels * math.pow(2, zoom).toDouble();
 
   /// The latitude at the middle of the view.
-  double get latitude => Mercator.latitude(y);
+  double get latitude => OsmMercator.latitude(y);
 
   /// The longitude at the middle of the view.
-  double get longitude => Mercator.longitude(x);
+  double get longitude => OsmMercator.longitude(x);
 
   /// Where world position ([worldX], [worldY]) falls on a view of [size], at
   /// whichever of its copies round the world is nearest the middle.
   Offset toScreen(double worldX, double worldY, Size size) => Offset(
-    (Mercator.nearest(worldX, x) - x) * scale + size.width / 2,
+    (OsmMercator.nearest(worldX, x) - x) * scale + size.width / 2,
     (worldY - y) * scale + size.height / 2,
   );
 
@@ -73,7 +77,7 @@ class Camera {
   ///
   /// Not brought back onto the world, so that positions either side of the
   /// antimeridian on the same view are still next to each other. Anything
-  /// put there has to be brought back first, by [Mercator.wrappedLongitude].
+  /// put there has to be brought back first, by [OsmMercator.wrappedLongitude].
 
   Offset toWorld(Offset point, Size size) => Offset(
     (point.dx - size.width / 2) / scale + x,
@@ -95,16 +99,16 @@ class Camera {
   /// it, since a box on the ground cannot go round the back of the world.
   List<OsmBounds> groundBounds(Size size) {
     final view = worldBounds(size);
-    final minLatitude = Mercator.latitude(view.bottom.clamp(0.0, 1.0));
-    final maxLatitude = Mercator.latitude(view.top.clamp(0.0, 1.0));
+    final minLatitude = OsmMercator.latitude(view.bottom.clamp(0.0, 1.0));
+    final maxLatitude = OsmMercator.latitude(view.top.clamp(0.0, 1.0));
     OsmBounds box(double left, double right) => OsmBounds(
       minLatitude: minLatitude,
-      minLongitude: Mercator.longitude(left),
+      minLongitude: OsmMercator.longitude(left),
       maxLatitude: maxLatitude,
-      maxLongitude: Mercator.longitude(right),
+      maxLongitude: OsmMercator.longitude(right),
     );
     if (view.width >= 1) return [box(0, 1)];
-    final left = Mercator.wrap(view.left);
+    final left = OsmMercator.wrap(view.left);
     final right = left + view.width;
     if (right <= 1) return [box(left, right)];
     return [box(left, 1), box(0, right - 1)];

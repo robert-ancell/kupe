@@ -78,10 +78,10 @@ _Along? _alongWay(
     final end = _nodeOf(way.nodeIds[i + 1], store, edits);
     if (start == null || end == null) continue;
 
-    final ax = Mercator.x(start.longitude);
-    final ay = Mercator.y(start.latitude);
-    final bx = Mercator.x(end.longitude);
-    final by = Mercator.y(end.latitude);
+    final ax = OsmMercator.x(start.longitude);
+    final ay = OsmMercator.y(start.latitude);
+    final bx = OsmMercator.x(end.longitude);
+    final by = OsmMercator.y(end.latitude);
     final dx = bx - ax;
     final dy = by - ay;
     final length = dx * dx + dy * dy;

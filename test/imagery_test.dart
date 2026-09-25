@@ -339,7 +339,7 @@ void main() {
       // A week on, with the server holding its answers.
       final index = File('${work.path}/index.json');
       final long = DateTime.now()
-          .subtract(osmImageryFreshness * 2)
+          .subtract(OsmImageryCache.freshness * 2)
           .millisecondsSinceEpoch;
       await index.writeAsString(
         (await index.readAsString()).replaceAll(

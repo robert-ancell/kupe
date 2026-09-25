@@ -87,7 +87,7 @@ class MapView extends StatefulWidget {
   final Camera initialCamera;
 
   /// Where boxes already read are kept between runs.
-  final OsmTileCache? cache;
+  final OsmDataCache? cache;
 
   /// Where to remember the place the map was left.
   final File? place;
@@ -303,7 +303,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
       if (!mounted) return false;
       setState(() => _setAccount(account));
       return account.canUpload;
-    } on OsmSignInCancelledException {
+    } on OsmAuthenticationCancelledException {
       return false;
     } on Exception catch (e) {
       if (mounted) setState(() => _notice = '$e');
@@ -497,7 +497,9 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final index = widget.imageryIndex?.value;
     if (index == null) return;
     final held = _source;
-    if (held != null && held.covers(camera.latitude, camera.longitude)) return;
+    if (held != null && held.contains(camera.latitude, camera.longitude)) {
+      return;
+    }
 
     final wanted = index
         .at(
@@ -653,8 +655,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     setState(() {
       _editor.moveNode(
         held.node,
-        latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
-        longitude: Mercator.wrappedLongitude(world.dx),
+        latitude: OsmMercator.latitude(world.dy.clamp(0.0, 1.0)),
+        longitude: OsmMercator.wrappedLongitude(world.dx),
         continuing: !first,
       );
       _refreshPicked();
@@ -684,8 +686,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     void cover(OsmNode? node) {
       if (node == null) return;
       // At the copy round the world nearest the view, as it is drawn.
-      final x = Mercator.nearest(Mercator.x(node.longitude), _camera.x);
-      final y = Mercator.y(node.latitude);
+      final x = OsmMercator.nearest(OsmMercator.x(node.longitude), _camera.x);
+      final y = OsmMercator.y(node.latitude);
       if (x < left) left = x;
       if (x > right) right = x;
       if (y < top) top = y;
@@ -807,8 +809,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           for (final point in points) {
             _selected[(OsmElementType.node, point.id)] = PickedNode(
               node: point,
-              worldX: Mercator.x(point.longitude),
-              worldY: Mercator.y(point.latitude),
+              worldX: OsmMercator.x(point.longitude),
+              worldY: OsmMercator.y(point.latitude),
             );
           }
           _refreshPicked();
@@ -865,8 +867,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
           OsmNode() => switch (view.node(element.id)) {
             final node? => PickedNode(
               node: node,
-              worldX: Mercator.x(node.longitude),
-              worldY: Mercator.y(node.latitude),
+              worldX: OsmMercator.x(node.longitude),
+              worldY: OsmMercator.y(node.latitude),
             ),
             null => null,
           },
@@ -1109,8 +1111,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   void _placeNode(Offset at) {
     final world = _camera.toWorld(at, _size);
     final made = _editor.createNode(
-      latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
-      longitude: Mercator.wrappedLongitude(world.dx),
+      latitude: OsmMercator.latitude(world.dy.clamp(0.0, 1.0)),
+      longitude: OsmMercator.wrappedLongitude(world.dx),
     );
     _selectOnly(made);
     setState(() => _tool = MapTool.browse);
@@ -1150,8 +1152,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
         under?.id ??
         _edits
             .createNode(
-              latitude: Mercator.latitude(world.dy.clamp(0.0, 1.0)),
-              longitude: Mercator.wrappedLongitude(world.dx),
+              latitude: OsmMercator.latitude(world.dy.clamp(0.0, 1.0)),
+              longitude: OsmMercator.wrappedLongitude(world.dx),
             )
             .id;
     setState(() => _drawing.add(id));
@@ -1194,7 +1196,7 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
   List<double>? _pointOf(int id) {
     final node = _edits.changedNode(id) ?? _loader.store.nodes[id];
     if (node == null) return null;
-    return [Mercator.x(node.longitude), Mercator.y(node.latitude)];
+    return [OsmMercator.x(node.longitude), OsmMercator.y(node.latitude)];
   }
 
   /// Whether a click landed on the node with [id].
@@ -1202,8 +1204,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final node = _edits.changedNode(id) ?? _loader.store.nodes[id];
     if (node == null) return false;
     final where = _camera.toScreen(
-      Mercator.x(node.longitude),
-      Mercator.y(node.latitude),
+      OsmMercator.x(node.longitude),
+      OsmMercator.y(node.latitude),
       _size,
     );
     return (where - at).distance <= nodePickTolerance;
@@ -1305,8 +1307,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     final picked = switch (element) {
       OsmNode() => PickedNode(
         node: element,
-        worldX: Mercator.x(element.longitude),
-        worldY: Mercator.y(element.latitude),
+        worldX: OsmMercator.x(element.longitude),
+        worldY: OsmMercator.y(element.latitude),
       ),
       OsmWay() => PickedWay(
         way: element,
@@ -1327,8 +1329,8 @@ class _MapViewState extends State<MapView> with SingleTickerProviderStateMixin {
     for (final id in way.nodeIds)
       if ((_edits.changedNode(id) ?? _loader.store.nodes[id])
           case final node?) ...[
-        Mercator.x(node.longitude),
-        Mercator.y(node.latitude),
+        OsmMercator.x(node.longitude),
+        OsmMercator.y(node.latitude),
       ],
   ];
 

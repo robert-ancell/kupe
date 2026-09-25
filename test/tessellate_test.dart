@@ -130,7 +130,7 @@ void main() {
       maxX = triangles[i] > maxX ? triangles[i] : maxX;
     }
     final end =
-        (Mercator.x(174.7610) - tile.id.worldX) * tileExtent / tile.id.size;
+        (OsmMercator.x(174.7610) - tile.id.worldX) * tileExtent / tile.id.size;
     expect(maxX, closeTo(end, 1e-3));
   });
 

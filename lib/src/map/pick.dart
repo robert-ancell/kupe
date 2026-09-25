@@ -115,8 +115,8 @@ Picked? refreshed(Picked picked, MapStore store, OsmEditHistory edits) {
       if (node == null) return null;
       return PickedNode(
         node: node,
-        worldX: Mercator.x(node.longitude),
-        worldY: Mercator.y(node.latitude),
+        worldX: OsmMercator.x(node.longitude),
+        worldY: OsmMercator.y(node.latitude),
       );
     case PickedWay():
       final way = edits.changedWay(picked.id) ?? store.ways[picked.id];
@@ -251,8 +251,8 @@ PickedNode? nodeAt(
 
   void consider(OsmNode node) {
     // The copy round the world nearest the pointer.
-    final x = Mercator.nearest(Mercator.x(node.longitude), world.dx);
-    final y = Mercator.y(node.latitude);
+    final x = OsmMercator.nearest(OsmMercator.x(node.longitude), world.dx);
+    final y = OsmMercator.y(node.latitude);
     final distance = math.sqrt(
       (x - world.dx) * (x - world.dx) + (y - world.dy) * (y - world.dy),
     );
@@ -332,7 +332,7 @@ PickedWay? wayAt(
     final width = pickWidthOf(way);
     final half = width / 2 / camera.scale;
     // The pointer brought round to the same side of the world as the line.
-    final at = Offset(Mercator.nearest(world.dx, points[0]), world.dy);
+    final at = Offset(OsmMercator.nearest(world.dx, points[0]), world.dy);
     final distance = _distanceTo(points, at) - half;
     if (distance > reach || distance >= nearestDistance) continue;
 
@@ -397,11 +397,11 @@ List<double>? worldPointsOf(
     if (node == null) return null;
     // Each beside the one before, so a way across the antimeridian is the
     // short way it is rather than one right round the world.
-    final x = Mercator.x(node.longitude);
+    final x = OsmMercator.x(node.longitude);
     points.add(
-      points.isEmpty ? x : Mercator.nearest(x, points[points.length - 2]),
+      points.isEmpty ? x : OsmMercator.nearest(x, points[points.length - 2]),
     );
-    points.add(Mercator.y(node.latitude));
+    points.add(OsmMercator.y(node.latitude));
   }
   return points;
 }

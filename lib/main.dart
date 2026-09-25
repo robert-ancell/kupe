@@ -127,7 +127,7 @@ Future<void> main(List<String> arguments) async {
             longitude: _somewhere.longitude,
             zoom: _somewhere.zoom,
           ),
-      cache: cache?.tileCache,
+      cache: cache?.dataCache,
       place: place,
       account: accountFile,
       imageryCache: cache?.imageryCache,
@@ -147,7 +147,7 @@ class KupeApp extends StatelessWidget {
   final Camera camera;
 
   /// Where boxes already read are kept between runs.
-  final OsmTileCache? cache;
+  final OsmDataCache? cache;
 
   /// Where the place the map was left is remembered.
   final File? place;
